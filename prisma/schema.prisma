@@ -1,0 +1,100 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id                  String               @id @default(auto()) @map("_id") @db.ObjectId
+  name                String
+  email               String               @unique
+  password            String
+  role                Role                 @default(USER)
+  orders              Order[]
+  addresses           Address[]
+  passwordResetTokens PasswordResetToken[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+}
+
+model Product {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  slug           String   @unique
+  name           String
+  category       String
+  collection     String?
+  statement      String
+  description    String
+  price          Float
+  originalPrice  Float?
+  image          String
+  images         String[]
+  imagePublicIds String[]
+  sizes          String[]
+  stock          Int      @default(0)
+  featured       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Order {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  orderNumber     String   @unique
+  userId          String   @db.ObjectId
+  user            User     @relation(fields: [userId], references: [id])
+  items           Json
+  subtotal        Float
+  shipping        Float
+  discount        Float    @default(0)
+  total           Float
+  deliveryMethod  String
+  paymentMethod   String
+  paymentStatus   String   @default("PENDING")
+  status          String   @default("PLACED")
+  shippingAddress Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, createdAt])
+}
+
+model Address {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String   @db.ObjectId
+  user         User     @relation(fields: [userId], references: [id])
+  label        String
+  fullName     String
+  phone        String
+  addressLine1 String
+  addressLine2 String?
+  city         String
+  state        String
+  pincode      String
+  landmark     String?
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId, isDefault])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String?   @db.ObjectId
+  user      User?     @relation(fields: [userId], references: [id])
+  email     String
+  tokenHash String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email, expiresAt])
+}
