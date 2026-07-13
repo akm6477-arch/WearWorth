@@ -8,6 +8,7 @@ interface OrderItem {
   name: string;
   quantity: number;
   size: string;
+  color?: string;
   total: number;
 }
 
@@ -85,6 +86,7 @@ export default function OrderDetailPage() {
                 <article key={`${item.name}-${index}`}>
                   <strong>{item.name}</strong>
                   <span>Size: {item.size}</span>
+                  {item.color ? <span>Color: {item.color}</span> : null}
                   <span>Qty: {item.quantity}</span>
                   <b>Rs.{item.total.toLocaleString("en-IN")}</b>
                 </article>

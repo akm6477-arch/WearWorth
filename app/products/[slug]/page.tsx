@@ -15,26 +15,29 @@ import {
   Ruler,
   ShieldCheck,
   ShoppingBag,
-  Star,
   Truck,
 } from "lucide-react";
 
 import ProductCard from "@/app/components/ProductCard";
 import { useCart } from "@/app/context/CartContext";
+import { useWishlist } from "@/app/context/WishlistContext";
 import type { CatalogProduct } from "@/lib/catalog-types";
-
-const WISHLIST_STORAGE_KEY = "wearworth-wishlist";
 
 export default function ProductPage() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
   const { addToCart } = useCart();
+  const {
+    isInWishlist,
+    toggleWishlist: toggleProductWishlist,
+  } = useWishlist();
 
   const [product, setProduct] = useState<CatalogProduct | null>(null);
   const [relatedProducts, setRelatedProducts] = useState<CatalogProduct[]>([]);
   const [selectedSize, setSelectedSize] = useState("");
+  const [selectedColor, setSelectedColor] = useState("");
+  const [selectedImage, setSelectedImage] = useState("");
   const [quantity, setQuantity] = useState(1);
-  const [wishlisted, setWishlisted] = useState(false);
   const [added, setAdded] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(true);
@@ -79,27 +82,24 @@ export default function ProductPage() {
     if (product?.sizes?.length) {
       setSelectedSize(product.sizes[0]);
     }
+
+    if (product?.colors?.length) {
+      setSelectedColor(product.colors[0]);
+    }
+
+    if (product) {
+      setSelectedImage(
+        product.image ||
+          product.images[0] ||
+          "/images/wearworth-logo.jpeg",
+      );
+      setImageError(false);
+    }
   }, [product]);
 
   useEffect(() => {
-    if (!product) {
-      return;
-    }
-
-    try {
-      const savedWishlist = localStorage.getItem(
-        WISHLIST_STORAGE_KEY,
-      );
-
-      const wishlistItems: string[] = savedWishlist
-        ? JSON.parse(savedWishlist)
-        : [];
-
-      setWishlisted(wishlistItems.includes(product.slug));
-    } catch {
-      setWishlisted(false);
-    }
-  }, [product]);
+    setImageError(false);
+  }, [selectedImage]);
 
   const discountPercentage = useMemo(() => {
     if (
@@ -116,43 +116,48 @@ export default function ProductPage() {
     );
   }, [product]);
 
+  const galleryImages = useMemo(() => {
+    if (!product) {
+      return ["/images/wearworth-logo.jpeg"];
+    }
+
+    return Array.from(
+      new Set(
+        [
+          product.image,
+          ...product.images,
+          "/images/wearworth-logo.jpeg",
+        ].filter(Boolean),
+      ),
+    );
+  }, [product]);
+
+  const outOfStock = product ? product.stock <= 0 : false;
+  const lowStock =
+    product &&
+    product.stock > 0 &&
+    product.stock <= product.lowStockThreshold;
+  const wishlisted = product ? isInWishlist(product) : false;
+
   const toggleWishlist = () => {
     if (!product) {
       return;
     }
 
-    try {
-      const savedWishlist = localStorage.getItem(
-        WISHLIST_STORAGE_KEY,
-      );
-
-      const wishlistItems: string[] = savedWishlist
-        ? JSON.parse(savedWishlist)
-        : [];
-
-      const updatedWishlist = wishlistItems.includes(product.slug)
-        ? wishlistItems.filter((item) => item !== product.slug)
-        : [...wishlistItems, product.slug];
-
-      localStorage.setItem(
-        WISHLIST_STORAGE_KEY,
-        JSON.stringify(updatedWishlist),
-      );
-
-      setWishlisted(updatedWishlist.includes(product.slug));
-    } catch {
-      setWishlisted((currentValue) => !currentValue);
-    }
+    toggleProductWishlist(product);
   };
 
   const handleAddToCart = () => {
-    if (!product || !selectedSize) {
+    if (
+      !product ||
+      !selectedSize ||
+      outOfStock ||
+      (product.colors.length > 0 && !selectedColor)
+    ) {
       return;
     }
 
-    for (let item = 0; item < quantity; item += 1) {
-      addToCart(product, selectedSize);
-    }
+    addToCart(product, selectedSize, quantity, selectedColor);
 
     setAdded(true);
 
@@ -202,9 +207,9 @@ export default function ProductPage() {
             <div className="product-main-image-frame">
               <Image
                 src={
-                  imageError || !product.image
+                  imageError || !selectedImage
                     ? "/images/wearworth-logo.jpeg"
-                    : product.image
+                    : selectedImage
                 }
                 alt={product.name}
                 fill
@@ -216,6 +221,8 @@ export default function ProductPage() {
 
             <div className="product-image-badges">
               <span>NEW DROP</span>
+              {outOfStock ? <strong>OUT OF STOCK</strong> : null}
+              {lowStock ? <strong>ONLY {product.stock} LEFT</strong> : null}
               {discountPercentage > 0 && (
                 <strong>{discountPercentage}% OFF</strong>
               )}
@@ -241,30 +248,35 @@ export default function ProductPage() {
           </div>
 
           <div className="product-thumbnail-list">
-            <button
-              type="button"
-              className="product-thumbnail-active"
-              aria-label="View main product image"
-            >
-              <div className="product-thumbnail-frame">
-                <Image
-                  src={
-                    imageError || !product.image
-                      ? "/images/wearworth-logo.jpeg"
-                      : product.image
+            <div className="product-thumbnail-grid">
+              {galleryImages.map((image, index) => (
+                <button
+                  type="button"
+                  key={`${image}-${index}`}
+                  className={
+                    selectedImage === image
+                      ? "product-thumbnail-active"
+                      : ""
                   }
-                  alt={product.name}
-                  fill
-                  sizes="100px"
-                />
-              </div>
-            </button>
+                  onClick={() => setSelectedImage(image)}
+                  aria-label={`View product image ${index + 1}`}
+                >
+                  <div className="product-thumbnail-frame">
+                    <Image
+                      src={image}
+                      alt={product.name}
+                      fill
+                      sizes="100px"
+                    />
+                  </div>
+                </button>
+              ))}
+            </div>
 
             <div className="product-gallery-message">
-              <span>WEARWORTH PRODUCT VIEW</span>
+              <span>{product.sku}</span>
               <p>
-                More product photographs and model views will be added through the
-                admin dashboard.
+                {product.material} / {product.fit} / {product.audience}
               </p>
             </div>
           </div>
@@ -272,17 +284,9 @@ export default function ProductPage() {
 
         <div className="product-information">
           <div className="product-information-top">
-            <p className="eyebrow">{product.category}</p>
-
-            <div className="product-detail-rating">
-              <div>
-                {Array.from({ length: 5 }).map((_, index) => (
-                  <Star key={index} size={14} fill="currentColor" />
-                ))}
-              </div>
-
-              <span>5.0 · WearWorth Drop</span>
-            </div>
+            <p className="eyebrow">
+              {product.category} / {product.audience}
+            </p>
           </div>
 
           <h1>{product.name}</h1>
@@ -301,6 +305,14 @@ export default function ProductPage() {
           </div>
 
           <p className="product-tax-note">Inclusive of all taxes</p>
+
+          <div className="product-stock-note">
+            {outOfStock
+              ? "Out of stock"
+              : lowStock
+                ? `Only ${product.stock} left in stock`
+                : `${product.stock} available`}
+          </div>
 
           <div className="product-size-section">
             <div className="product-option-heading">
@@ -326,6 +338,34 @@ export default function ProductPage() {
                   onClick={() => setSelectedSize(size)}
                 >
                   {size}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="product-color-section">
+            <div className="product-option-heading">
+              <div>
+                <span>SELECT COLOR</span>
+                {selectedColor && (
+                  <strong>Selected: {selectedColor}</strong>
+                )}
+              </div>
+            </div>
+
+            <div className="premium-color-list">
+              {product.colors.map((color) => (
+                <button
+                  type="button"
+                  key={color}
+                  className={
+                    selectedColor === color
+                      ? "premium-color-active"
+                      : ""
+                  }
+                  onClick={() => setSelectedColor(color)}
+                >
+                  {color}
                 </button>
               ))}
             </div>
@@ -368,12 +408,17 @@ export default function ProductPage() {
                 added ? "product-add-to-bag-success" : ""
               }`}
               onClick={handleAddToCart}
-              disabled={!selectedSize}
+              disabled={!selectedSize || outOfStock}
             >
               {added ? (
                 <>
                   <Check size={19} />
                   ADDED TO BAG
+                </>
+              ) : outOfStock ? (
+                <>
+                  <ShoppingBag size={19} />
+                  OUT OF STOCK
                 </>
               ) : (
                 <>
@@ -384,7 +429,7 @@ export default function ProductPage() {
             </button>
           </div>
 
-          {!selectedSize && (
+          {!selectedSize && !outOfStock && (
             <p className="product-size-warning">
               Select a size before adding this product to your bag.
             </p>
@@ -395,7 +440,11 @@ export default function ProductPage() {
               <Truck size={21} />
               <div>
                 <strong>Free shipping</strong>
-                <span>On orders above Rs.999</span>
+                <span>
+                  {outOfStock
+                    ? "Restock timing will appear here"
+                    : "Ships after confirmation"}
+                </span>
               </div>
             </article>
 
@@ -411,7 +460,7 @@ export default function ProductPage() {
               <ShieldCheck size={21} />
               <div>
                 <strong>Secure checkout</strong>
-                <span>Protected payments</span>
+                <span>Cash on Delivery enabled</span>
               </div>
             </article>
           </div>
@@ -433,7 +482,11 @@ export default function ProductPage() {
                   </p>
                   <ul>
                     <li>Statement-led design</li>
-                    <li>Comfort-focused everyday fit</li>
+                    <li>Material: {product.material}</li>
+                    <li>Fit: {product.fit}</li>
+                    <li>Colors: {product.colors.join(", ")}</li>
+                    <li>Audience: {product.audience}</li>
+                    <li>SKU: {product.sku}</li>
                     <li>Designed for repeat wear</li>
                     <li>
                       Collection: {product.collection || "WearWorth Essentials"}
@@ -456,7 +509,9 @@ export default function ProductPage() {
               {deliveryOpen && (
                 <div className="product-accordion-content">
                   <p>
-                    Delivery time and return eligibility will be shown accurately after the checkout and logistics systems are connected.
+                    {outOfStock
+                      ? "This product is currently out of stock. Delivery opens again after restock."
+                      : "Delivery is estimated after order confirmation. Final timelines are shown at checkout."}
                   </p>
                 </div>
               )}
@@ -474,7 +529,7 @@ export default function ProductPage() {
               {careOpen && (
                 <div className="product-accordion-content">
                   <p>
-                    Wash garments inside out using cold water. Avoid bleach, harsh chemicals and direct ironing over printed areas.
+                    {product.washCare}
                   </p>
                 </div>
               )}

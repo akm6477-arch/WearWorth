@@ -35,10 +35,13 @@ export default function AddressesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const loadAddresses = async () => {
     try {
+      setError("");
       const response = await fetch("/api/addresses", {
         cache: "no-store",
       });
@@ -75,6 +78,7 @@ export default function AddressesPage() {
     event.preventDefault();
     setSubmitting(true);
     setError("");
+    setSuccess("");
 
     try {
       const response = await fetch(
@@ -98,6 +102,11 @@ export default function AddressesPage() {
       }
 
       resetForm();
+      setSuccess(
+        editingId
+          ? "Address updated successfully."
+          : "Address added successfully.",
+      );
       await loadAddresses();
     } catch {
       setError("Unable to save address.");
@@ -107,6 +116,8 @@ export default function AddressesPage() {
   };
 
   const startEdit = (address: Address) => {
+    setError("");
+    setSuccess("");
     setEditingId(address.id);
     setForm({
       label: address.label,
@@ -122,14 +133,71 @@ export default function AddressesPage() {
     });
   };
 
-  const handleDelete = async (id: string) => {
+  const handleSetDefault = async (address: Address) => {
+    setError("");
+    setSuccess("");
+
     try {
-      await fetch(`/api/addresses/${id}`, {
+      const response = await fetch(`/api/addresses/${address.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...address,
+          isDefault: true,
+        }),
+      });
+
+      const data = (await response.json()) as {
+        error?: string;
+      };
+
+      if (!response.ok) {
+        setError(data.error || "Unable to update default address.");
+        return;
+      }
+
+      setSuccess("Default address updated.");
+      await loadAddresses();
+    } catch {
+      setError("Unable to update default address.");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    const confirmed = window.confirm(
+      "Delete this saved address?",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingId(id);
+    setError("");
+    setSuccess("");
+
+    try {
+      const response = await fetch(`/api/addresses/${id}`, {
         method: "DELETE",
       });
+
+      const data = (await response.json()) as {
+        error?: string;
+      };
+
+      if (!response.ok) {
+        setError(data.error || "Unable to delete address.");
+        return;
+      }
+
+      setSuccess("Address deleted successfully.");
       await loadAddresses();
     } catch {
       setError("Unable to delete address.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -145,6 +213,9 @@ export default function AddressesPage() {
 
         {loading ? <div className="account-list-loading" /> : null}
         {error ? <div className="account-form-error">{error}</div> : null}
+        {success ? (
+          <div className="account-form-success">{success}</div>
+        ) : null}
 
         <form onSubmit={handleSubmit} className="account-address-form">
           <input
@@ -277,6 +348,12 @@ export default function AddressesPage() {
           </div>
         </form>
 
+        {!loading && !error && addresses.length === 0 ? (
+          <div className="account-empty-state">
+            <p>No saved addresses yet.</p>
+          </div>
+        ) : null}
+
         <div className="account-list-grid">
           {addresses.map((address) => (
             <article key={address.id} className="account-list-card">
@@ -293,8 +370,16 @@ export default function AddressesPage() {
                 <button type="button" onClick={() => startEdit(address)}>
                   Edit
                 </button>
+                {!address.isDefault ? (
+                  <button
+                    type="button"
+                    onClick={() => handleSetDefault(address)}
+                  >
+                    Set default
+                  </button>
+                ) : null}
                 <button type="button" onClick={() => handleDelete(address.id)}>
-                  Delete
+                  {deletingId === address.id ? "Deleting..." : "Delete"}
                 </button>
               </div>
             </article>

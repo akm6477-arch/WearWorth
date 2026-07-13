@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import NewsletterSignup from "@/app/components/NewsletterSignup";
 import ProductCard from "@/app/components/ProductCard";
 import { getCatalogProducts } from "@/lib/catalog";
 
@@ -25,14 +26,17 @@ const chapters = [
   {
     title: "Built From Broken",
     text: "For the people who rebuilt themselves quietly.",
+    href: "/products?search=Built+From+Broken",
   },
   {
     title: "Dreams Don't Sleep",
     text: "For late nights, first attempts and impossible plans.",
+    href: "/products?search=Dreams+Don%27t+Sleep",
   },
   {
     title: "Quiet Power",
     text: "For confidence that does not need permission.",
+    href: "/products?search=Quiet+Power",
   },
 ];
 
@@ -180,7 +184,7 @@ export default async function Home() {
           <div className="chapter-grid">
             {chapters.map((chapter, index) => (
               <Link
-                href="/products"
+                href={chapter.href}
                 className={`chapter-card chapter-card-${index + 1}`}
                 key={chapter.title}
               >
@@ -284,15 +288,7 @@ export default async function Home() {
           <h2>Wear the next chapter before everyone else.</h2>
         </div>
 
-        <form className="newsletter-form">
-          <input
-            type="email"
-            placeholder="Enter your email address"
-            aria-label="Email address"
-          />
-
-          <button type="submit">JOIN WEARWORTH</button>
-        </form>
+        <NewsletterSignup />
       </section>
     </main>
   );

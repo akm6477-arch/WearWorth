@@ -3,11 +3,11 @@
 import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Eye,
   Heart,
   ShoppingBag,
-  Star,
 } from "lucide-react";
 
 import type { CatalogProduct } from "@/lib/catalog-types";
@@ -21,6 +21,7 @@ interface ProductCardProps {
 export default function ProductCard({
   product,
 }: ProductCardProps) {
+  const router = useRouter();
   const { addToCart } = useCart();
 
   const {
@@ -33,6 +34,13 @@ export default function ProductCard({
 
   const productUrl = `/products/${product.slug}`;
   const wishlisted = isInWishlist(product);
+  const primaryImage =
+    product.image || product.images[0] || "/images/wearworth-logo.jpeg";
+  const outOfStock = product.stock <= 0;
+  const requiresVariantChoice =
+    product.sizes.length > 1 || product.colors.length > 1;
+  const lowStock =
+    !outOfStock && product.stock <= product.lowStockThreshold;
 
   const discountPercentage = useMemo(() => {
     if (
@@ -50,6 +58,15 @@ export default function ProductCard({
   }, [product.originalPrice, product.price]);
 
   const handleAddToCart = () => {
+    if (outOfStock) {
+      return;
+    }
+
+    if (requiresVariantChoice) {
+      router.push(productUrl);
+      return;
+    }
+
     addToCart(product);
 
     setAdded(true);
@@ -70,9 +87,9 @@ export default function ProductCard({
           <div className="premium-product-image-frame">
             <Image
               src={
-                imageError || !product.image
+                imageError || !primaryImage
                   ? "/images/wearworth-logo.jpeg"
-                  : product.image
+                  : primaryImage
               }
               alt={product.name}
               fill
@@ -96,6 +113,16 @@ export default function ProductCard({
               {discountPercentage}% OFF
             </span>
           )}
+
+          {outOfStock ? (
+            <span className="premium-product-stock-badge">
+              OUT OF STOCK
+            </span>
+          ) : lowStock ? (
+            <span className="premium-product-stock-badge">
+              LOW STOCK
+            </span>
+          ) : null}
         </div>
 
         <button
@@ -132,27 +159,25 @@ export default function ProductCard({
             type="button"
             className="premium-product-add-hover"
             onClick={handleAddToCart}
+            disabled={outOfStock}
           >
             <ShoppingBag size={17} />
-            {added ? "ADDED" : "ADD TO CART"}
+            {outOfStock
+              ? "OUT OF STOCK"
+              : requiresVariantChoice
+                ? "CHOOSE OPTIONS"
+                : added
+                  ? "ADDED"
+                  : "ADD TO CART"}
           </button>
         </div>
       </div>
 
       <div className="premium-product-content">
         <div className="premium-product-meta">
-          <p>{product.category}</p>
-
-          <div
-            className="premium-product-rating"
-            aria-label="Five-star product"
-          >
-            <Star size={12} fill="currentColor" />
-            <Star size={12} fill="currentColor" />
-            <Star size={12} fill="currentColor" />
-            <Star size={12} fill="currentColor" />
-            <Star size={12} fill="currentColor" />
-          </div>
+          <p>
+            {product.category} / {product.audience}
+          </p>
         </div>
 
         <Link href={productUrl}>
@@ -188,11 +213,24 @@ export default function ProductCard({
                 : ""
             }`}
             onClick={handleAddToCart}
-            aria-label={`Add ${product.name} to cart`}
+            disabled={outOfStock}
+            aria-label={
+              requiresVariantChoice
+                ? `Choose options for ${product.name}`
+                : `Add ${product.name} to cart`
+            }
           >
             <ShoppingBag size={16} />
 
-            <span>{added ? "ADDED" : "ADD"}</span>
+            <span>
+              {outOfStock
+                ? "SOLD"
+                : requiresVariantChoice
+                  ? "CHOOSE"
+                  : added
+                    ? "ADDED"
+                    : "ADD"}
+            </span>
           </button>
         </div>
       </div>

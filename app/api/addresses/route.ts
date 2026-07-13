@@ -5,6 +5,7 @@ import {
   isDatabaseUnavailableError,
   prisma,
 } from "@/lib/prisma";
+import { rateLimit } from "@/lib/rate-limit";
 
 interface AddressBody {
   label?: unknown;
@@ -127,6 +128,16 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const rateLimited = rateLimit(request, {
+    key: "address-create",
+    limit: 30,
+    windowMs: 60 * 1000,
+  });
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const authResult = await requireAuthUser(request);
 
   if (!authResult.user) {

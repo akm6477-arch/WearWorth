@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import { rateLimit } from "@/lib/rate-limit";
 
 interface ForgotPasswordBody {
   email?: unknown;
@@ -12,6 +13,16 @@ function normalizeEmail(email: string) {
 }
 
 export async function POST(request: Request) {
+  const rateLimited = rateLimit(request, {
+    key: "auth-forgot-password",
+    limit: 5,
+    windowMs: 15 * 60 * 1000,
+  });
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   try {
     const body = (await request.json()) as ForgotPasswordBody;
     const email =
@@ -63,14 +74,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       message:
-        process.env.RESEND_API_KEY &&
-        process.env.RESEND_FROM_EMAIL
-          ? "If an account exists for that email, a reset link will be sent."
-          : "Reset-password architecture is ready, but email delivery is not connected yet.",
-      emailConfigured: Boolean(
-        process.env.RESEND_API_KEY &&
-          process.env.RESEND_FROM_EMAIL,
-      ),
+        "Email delivery is not configured yet. Please contact WearWorth support for assistance.",
     });
   } catch (error) {
     console.error("FORGOT_PASSWORD_API_ERROR", error);

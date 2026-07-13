@@ -12,6 +12,17 @@ enum Role {
   ADMIN
 }
 
+enum Audience {
+  MEN
+  WOMEN
+  UNISEX
+}
+
+enum ProductStatus {
+  ACTIVE
+  DRAFT
+}
+
 model User {
   id                  String               @id @default(auto()) @map("_id") @db.ObjectId
   name                String
@@ -20,29 +31,69 @@ model User {
   role                Role                 @default(USER)
   orders              Order[]
   addresses           Address[]
+  savedCartItems      SavedCartItem[]
+  wishlistItems       WishlistItem[]
   passwordResetTokens PasswordResetToken[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 }
 
 model Product {
-  id             String   @id @default(auto()) @map("_id") @db.ObjectId
-  slug           String   @unique
-  name           String
-  category       String
-  collection     String?
-  statement      String
-  description    String
-  price          Float
-  originalPrice  Float?
-  image          String
-  images         String[]
-  imagePublicIds String[]
-  sizes          String[]
-  stock          Int      @default(0)
-  featured       Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                String          @id @default(auto()) @map("_id") @db.ObjectId
+  slug              String          @unique
+  sku               String          @unique
+  name              String
+  category          String
+  audience          Audience        @default(UNISEX)
+  collection        String?
+  statement         String
+  description       String
+  price             Float
+  originalPrice     Float?
+  image             String
+  images            String[]        @default([])
+  imagePublicIds    String[]        @default([])
+  colors            String[]        @default([])
+  material          String          @default("Cotton blend")
+  fit               String          @default("Regular fit")
+  washCare          String          @default("Machine wash cold")
+  sizes             String[]        @default([])
+  stock             Int             @default(0)
+  lowStockThreshold Int             @default(5)
+  featured          Boolean         @default(false)
+  productStatus     ProductStatus   @default(ACTIVE)
+  savedCartItems    SavedCartItem[]
+  wishlistItems     WishlistItem[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+model SavedCartItem {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  productId String   @db.ObjectId
+  size      String   @default("")
+  color     String   @default("")
+  quantity  Int
+  user      User     @relation(fields: [userId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, productId, size, color])
+  @@index([userId])
+}
+
+model WishlistItem {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  productId String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId])
 }
 
 model Order {
@@ -58,7 +109,7 @@ model Order {
   deliveryMethod  String
   paymentMethod   String
   paymentStatus   String   @default("PENDING")
-  status          String   @default("PLACED")
+  status          String   @default("PENDING")
   shippingAddress Json
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

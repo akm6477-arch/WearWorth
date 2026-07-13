@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireAuthUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { rateLimit } from "@/lib/rate-limit";
 
 interface RouteContext {
   params: Promise<{
@@ -64,10 +65,48 @@ function normalizeAddressInput(body: AddressBody) {
   };
 }
 
+function validateAddressInput(address: ReturnType<typeof normalizeAddressInput>) {
+  if (address.label.length < 2) {
+    return "Please enter an address label.";
+  }
+
+  if (address.fullName.length < 2) {
+    return "Please enter the recipient name.";
+  }
+
+  if (!/^[6-9]\d{9}$/.test(address.phone)) {
+    return "Please enter a valid 10-digit phone number.";
+  }
+
+  if (address.addressLine1.length < 5) {
+    return "Please enter the full street address.";
+  }
+
+  if (address.city.length < 2 || address.state.length < 2) {
+    return "Please enter city and state.";
+  }
+
+  if (!/^\d{6}$/.test(address.pincode)) {
+    return "Please enter a valid 6-digit pincode.";
+  }
+
+  return null;
+}
+
 export async function PATCH(
   request: NextRequest,
   context: RouteContext,
 ) {
+  const rateLimited = rateLimit(request, {
+    key: "address-update",
+    limit: 30,
+    windowMs: 60 * 1000,
+  });
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const authResult = await requireAuthUser(request);
 
   if (!authResult.user) {
@@ -78,6 +117,18 @@ export async function PATCH(
     const { id } = await context.params;
     const body = (await request.json()) as AddressBody;
     const nextAddress = normalizeAddressInput(body);
+    const validationError = validateAddressInput(nextAddress);
+
+    if (validationError) {
+      return NextResponse.json(
+        {
+          error: validationError,
+        },
+        {
+          status: 400,
+        },
+      );
+    }
 
     const existingAddress = await prisma.address.findFirst({
       where: {
@@ -99,7 +150,10 @@ export async function PATCH(
 
     const updatedAddress = await prisma.$transaction(
       async (transaction) => {
-        if (nextAddress.isDefault) {
+        const shouldBeDefault =
+          nextAddress.isDefault || existingAddress.isDefault;
+
+        if (shouldBeDefault) {
           await transaction.address.updateMany({
             where: {
               userId: authResult.user!.id,
@@ -114,7 +168,10 @@ export async function PATCH(
           where: {
             id,
           },
-          data: nextAddress,
+          data: {
+            ...nextAddress,
+            isDefault: shouldBeDefault,
+          },
         });
       },
     );
@@ -140,6 +197,16 @@ export async function DELETE(
   request: NextRequest,
   context: RouteContext,
 ) {
+  const rateLimited = rateLimit(request, {
+    key: "address-delete",
+    limit: 30,
+    windowMs: 60 * 1000,
+  });
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const authResult = await requireAuthUser(request);
 
   if (!authResult.user) {

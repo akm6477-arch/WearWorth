@@ -413,59 +413,38 @@
 
 .cart-coupon {
   margin-top: 24px;
-}
-
-.cart-coupon label {
-  display: block;
-  margin-bottom: 10px;
-  color: #777777;
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 1.5px;
-}
-
-.cart-coupon > div {
-  display: grid;
-  grid-template-columns: 1fr auto;
-}
-
-.cart-coupon input {
-  min-width: 0;
-  min-height: 46px;
-  padding: 0 13px;
-  color: var(--ink, #0a0a0a);
-  background: #ffffff;
+  padding: 16px;
+  background: #f3f1eb;
   border: 1px solid var(--line, #d9d5cc);
-  border-right: 0;
-  outline: none;
-  font: inherit;
-  font-size: 12px;
 }
 
-.cart-coupon button {
-  min-width: 84px;
-  color: #ffffff;
-  background: var(--ink, #0a0a0a);
-  border: 1px solid var(--ink, #0a0a0a);
-  cursor: pointer;
-  font-size: 9px;
+.cart-coupon strong,
+.cart-reconcile-note strong {
+  display: block;
+  font-size: 11px;
   font-weight: 900;
+  text-transform: uppercase;
   letter-spacing: 1px;
 }
 
-.cart-coupon-success,
-.cart-coupon-error {
-  margin: 10px 0 0;
+.cart-coupon p,
+.cart-reconcile-note p,
+.cart-refreshing-note {
+  margin: 8px 0 0;
+  color: #666666;
   font-size: 11px;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
-.cart-coupon-success {
-  color: #2b6b37;
+.cart-refreshing-note {
+  padding: 12px 0 0;
 }
 
-.cart-coupon-error {
-  color: #a23737;
+.cart-reconcile-note {
+  margin-top: 14px;
+  padding: 14px;
+  background: #fff8d8;
+  border: 1px solid #d9c86b;
 }
 
 /* Price lines */
@@ -492,10 +471,6 @@
 
 .cart-price-breakdown strong {
   color: var(--ink, #0a0a0a);
-}
-
-.cart-discount-line strong {
-  color: #2b6b37;
 }
 
 .cart-total-row {

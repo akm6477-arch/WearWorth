@@ -7,15 +7,15 @@ const collections = [
     subtitle: "For the people who rebuilt themselves without applause.",
     quote: "What tried to end me became part of what built me.",
     tone: "Dark resilience",
-    href: "/products",
+    href: "/products?search=Built+From+Broken",
   },
   {
     number: "02",
-    title: "Dreams Don’t Sleep",
+    title: "Dreams Don't Sleep",
     subtitle: "For late nights, first attempts and impossible plans.",
     quote: "Some dreams only survive because someone refuses to rest.",
     tone: "Restless ambition",
-    href: "/products",
+    href: "/products?search=Dreams+Don%27t+Sleep",
   },
   {
     number: "03",
@@ -23,7 +23,7 @@ const collections = [
     subtitle: "For strength that does not need to announce itself.",
     quote: "Not every powerful person needs to be loud.",
     tone: "Calm confidence",
-    href: "/products",
+    href: "/products?search=Quiet+Power",
   },
   {
     number: "04",
@@ -31,7 +31,7 @@ const collections = [
     subtitle: "For anyone who knows their story is not finished.",
     quote: "I am not behind. I am still becoming.",
     tone: "Growth and possibility",
-    href: "/products",
+    href: "/products?search=Still+Becoming",
   },
   {
     number: "05",
@@ -39,7 +39,7 @@ const collections = [
     subtitle: "For people who stopped apologising for who they are.",
     quote: "My story does not need permission to exist.",
     tone: "Identity and truth",
-    href: "/products",
+    href: "/products?search=Own+Your+Story",
   },
   {
     number: "06",
@@ -47,7 +47,7 @@ const collections = [
     subtitle: "For those who choose themselves before approval arrives.",
     quote: "I stopped waiting for the world to understand me.",
     tone: "Defiant freedom",
-    href: "/products",
+    href: "/products?search=No+Permission+Needed",
   },
 ];
 
@@ -100,7 +100,7 @@ export default function CollectionsPage() {
 
           <div className="collections-hero-art">
             <div className="collections-poster">
-              <p>WEARWORTH ARCHIVE — VOLUME 01</p>
+              <p>WEARWORTH ARCHIVE - VOLUME 01</p>
 
               <div className="collections-poster-title">
                 HUMAN
@@ -108,11 +108,11 @@ export default function CollectionsPage() {
               </div>
 
               <blockquote>
-                “We do not design around seasons. We design around what people
-                are living through.”
+                "We do not design around seasons. We design around what people
+                are living through."
               </blockquote>
 
-              <small>FIRST EDITION — 2026</small>
+              <small>FIRST EDITION - 2026</small>
             </div>
 
             <div className="collections-orbit collections-orbit-one" />
@@ -156,7 +156,7 @@ export default function CollectionsPage() {
               <h2>Choose the chapter that feels like yours.</h2>
             </div>
 
-            <Link href="/products">SHOP ALL PRODUCTS →</Link>
+            <Link href="/products">SHOP ALL PRODUCTS -&gt;</Link>
           </div>
 
           <div className="collection-list">
@@ -177,7 +177,7 @@ export default function CollectionsPage() {
 
                 <blockquote>{collection.quote}</blockquote>
 
-                <Link href={collection.href}>EXPLORE CHAPTER →</Link>
+                <Link href={collection.href}>EXPLORE CHAPTER -&gt;</Link>
               </article>
             ))}
           </div>
@@ -196,11 +196,13 @@ export default function CollectionsPage() {
               </h2>
 
               <p>
-                For people whose lives do not look finished yet—and who no
+                For people whose lives do not look finished yet, and who no
                 longer see that as failure.
               </p>
 
-              <Link href="/products">SHOP THE CHAPTER →</Link>
+              <Link href="/products?search=Still+Becoming">
+                SHOP THE CHAPTER -&gt;
+              </Link>
             </div>
 
             <div className="featured-chapter-note">
@@ -221,7 +223,7 @@ export default function CollectionsPage() {
             </h2>
 
             <p>
-              “Still Becoming” is built around the idea that progress does not
+              "Still Becoming" is built around the idea that progress does not
               need to look impressive from the outside. It is for uncertain
               beginnings, quiet discipline, second chances and the courage to
               keep moving without proof that everything will work.
@@ -244,7 +246,10 @@ export default function CollectionsPage() {
               </div>
             </div>
 
-            <Link href="/products" className="button primary">
+            <Link
+              href="/products?search=Still+Becoming"
+              className="button primary"
+            >
               DISCOVER STILL BECOMING
             </Link>
           </div>

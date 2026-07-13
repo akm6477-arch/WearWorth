@@ -31,6 +31,11 @@ interface RegisterInput {
   password: string;
 }
 
+interface UpdateProfileInput {
+  name: string;
+  email: string;
+}
+
 interface AuthResult {
   success: boolean;
   error?: string;
@@ -44,6 +49,9 @@ interface AuthContextValue {
   refreshUser: () => Promise<void>;
   login: (input: LoginInput) => Promise<AuthResult>;
   register: (input: RegisterInput) => Promise<AuthResult>;
+  updateProfile: (
+    input: UpdateProfileInput,
+  ) => Promise<AuthResult>;
   logout: () => Promise<void>;
 }
 
@@ -204,6 +212,54 @@ export function AuthProvider({
     [],
   );
 
+  const updateProfile = useCallback(
+    async ({
+      name,
+      email,
+    }: UpdateProfileInput): Promise<AuthResult> => {
+      try {
+        const response = await fetch("/api/profile", {
+          method: "PATCH",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name,
+            email,
+          }),
+        });
+
+        if (!response.ok) {
+          return {
+            success: false,
+            error: await readErrorMessage(
+              response,
+              "We could not update your profile.",
+            ),
+          };
+        }
+
+        const data = (await response.json()) as {
+          user: AuthUser;
+        };
+
+        setUser(data.user);
+
+        return {
+          success: true,
+        };
+      } catch {
+        return {
+          success: false,
+          error:
+            "Unable to connect to the server. Please try again.",
+        };
+      }
+    },
+    [],
+  );
+
   const logout = useCallback(async () => {
     try {
       await fetch("/api/auth/logout", {
@@ -223,6 +279,7 @@ export function AuthProvider({
       refreshUser,
       login,
       register,
+      updateProfile,
       logout,
     }),
     [
@@ -231,6 +288,7 @@ export function AuthProvider({
       refreshUser,
       login,
       register,
+      updateProfile,
       logout,
     ],
   );

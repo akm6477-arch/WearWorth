@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdminUser } from "@/lib/auth";
-import { deleteCloudinaryImage } from "@/lib/cloudinary";
+import {
+  normalizeProductBody,
+  validateProductInput,
+  type ProductBody,
+} from "@/lib/admin-product-validation";
+import { deleteCloudinaryImages } from "@/lib/cloudinary";
 import {
   isDatabaseUnavailableError,
   prisma,
 } from "@/lib/prisma";
+import { rateLimit } from "@/lib/rate-limit";
 
 interface RouteContext {
   params: Promise<{
@@ -13,115 +19,20 @@ interface RouteContext {
   }>;
 }
 
-interface ProductBody {
-  slug?: unknown;
-  name?: unknown;
-  category?: unknown;
-  collection?: unknown;
-  statement?: unknown;
-  description?: unknown;
-  price?: unknown;
-  originalPrice?: unknown;
-  image?: unknown;
-  images?: unknown;
-  imagePublicIds?: unknown;
-  sizes?: unknown;
-  stock?: unknown;
-  featured?: unknown;
-}
-
-function slugify(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function parseStringArray(value: unknown) {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) =>
-        typeof item === "string" ? item.trim() : "",
-      )
-      .filter(Boolean);
-  }
-
-  if (typeof value === "string") {
-    return value
-      .split(/[\n,]+/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-
-  return [];
-}
-
-function normalizeProductBody(body: ProductBody) {
-  const name =
-    typeof body.name === "string" ? body.name.trim() : "";
-  const slugSource =
-    typeof body.slug === "string" && body.slug.trim()
-      ? body.slug
-      : name;
-  const images = parseStringArray(body.images);
-  const imagePublicIds = parseStringArray(body.imagePublicIds);
-  const primaryImage =
-    typeof body.image === "string" && body.image.trim()
-      ? body.image.trim()
-      : images[0] || "/images/wearworth-logo.jpeg";
-
-  return {
-    slug: slugify(slugSource),
-    name,
-    category:
-      typeof body.category === "string"
-        ? body.category.trim()
-        : "",
-    collection:
-      typeof body.collection === "string" &&
-      body.collection.trim()
-        ? body.collection.trim()
-        : null,
-    statement:
-      typeof body.statement === "string"
-        ? body.statement.trim()
-        : "",
-    description:
-      typeof body.description === "string"
-        ? body.description.trim()
-        : "",
-    price:
-      typeof body.price === "number"
-        ? body.price
-        : Number(body.price),
-    originalPrice:
-      body.originalPrice === null ||
-      body.originalPrice === undefined ||
-      body.originalPrice === ""
-        ? null
-        : typeof body.originalPrice === "number"
-          ? body.originalPrice
-          : Number(body.originalPrice),
-    image: primaryImage,
-    images:
-      images.length > 0
-        ? images
-        : [primaryImage],
-    imagePublicIds,
-    sizes: parseStringArray(body.sizes),
-    stock:
-      typeof body.stock === "number"
-        ? Math.max(0, Math.floor(body.stock))
-        : Math.max(0, Math.floor(Number(body.stock) || 0)),
-    featured: body.featured === true,
-  };
-}
-
 export async function PATCH(
   request: NextRequest,
   context: RouteContext,
 ) {
+  const rateLimited = rateLimit(request, {
+    key: "admin-update-product",
+    limit: 40,
+    windowMs: 60 * 1000,
+  });
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const authResult = await requireAdminUser(request);
 
   if (!authResult.user) {
@@ -132,34 +43,89 @@ export async function PATCH(
     const { id } = await context.params;
     const body = (await request.json()) as ProductBody;
     const product = normalizeProductBody(body);
+    const validationError = validateProductInput(product);
+
+    if (validationError) {
+      return NextResponse.json(
+        {
+          error: validationError,
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
     const existingProduct = await prisma.product.findUnique({
       where: {
         id,
       },
       select: {
+        id: true,
         imagePublicIds: true,
       },
     });
+
+    if (!existingProduct) {
+      return NextResponse.json(
+        {
+          error: "Product not found.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    const duplicateProduct = await prisma.product.findFirst({
+      where: {
+        OR: [
+          {
+            slug: product.data.slug,
+          },
+          {
+            sku: product.data.sku,
+          },
+        ],
+      },
+      select: {
+        id: true,
+        slug: true,
+        sku: true,
+      },
+    });
+
+    if (duplicateProduct && duplicateProduct.id !== id) {
+      const duplicateField =
+        duplicateProduct.slug === product.data.slug
+          ? "slug"
+          : "SKU";
+
+      return NextResponse.json(
+        {
+          error: `A product with this ${duplicateField} already exists.`,
+        },
+        {
+          status: 409,
+        },
+      );
+    }
 
     const updatedProduct = await prisma.product.update({
       where: {
         id,
       },
-      data: product,
+      data: product.data,
     });
 
     const removedPublicIds =
-      existingProduct?.imagePublicIds.filter(
+      existingProduct.imagePublicIds.filter(
         (publicId) =>
           !updatedProduct.imagePublicIds.includes(publicId),
-      ) || [];
+      );
 
     if (removedPublicIds.length > 0) {
-      await Promise.allSettled(
-        removedPublicIds.map((publicId) =>
-          deleteCloudinaryImage(publicId),
-        ),
-      );
+      await deleteCloudinaryImages(removedPublicIds);
     }
 
     return NextResponse.json({
@@ -185,6 +151,16 @@ export async function DELETE(
   request: NextRequest,
   context: RouteContext,
 ) {
+  const rateLimited = rateLimit(request, {
+    key: "admin-delete-product",
+    limit: 20,
+    windowMs: 60 * 1000,
+  });
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const authResult = await requireAdminUser(request);
 
   if (!authResult.user) {
@@ -202,18 +178,25 @@ export async function DELETE(
       },
     });
 
+    if (!existingProduct) {
+      return NextResponse.json(
+        {
+          error: "Product not found.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
     await prisma.product.delete({
       where: {
         id,
       },
     });
 
-    if (existingProduct?.imagePublicIds.length) {
-      await Promise.allSettled(
-        existingProduct.imagePublicIds.map((publicId) =>
-          deleteCloudinaryImage(publicId),
-        ),
-      );
+    if (existingProduct.imagePublicIds.length) {
+      await deleteCloudinaryImages(existingProduct.imagePublicIds);
     }
 
     return NextResponse.json({

@@ -13,23 +13,24 @@ import {
   ArrowLeft,
   Check,
   ChevronRight,
-  CreditCard,
   IndianRupee,
   LockKeyhole,
   MapPin,
   PackageCheck,
-  ShieldCheck,
   ShoppingBag,
   Truck,
   UserRound,
 } from "lucide-react";
 
 import { useAuth } from "@/app/context/AuthContext";
-import { useCart } from "@/app/context/CartContext";
+import {
+  type CartItem,
+  useCart,
+} from "@/app/context/CartContext";
 
 const FREE_SHIPPING_THRESHOLD = 999;
 
-type PaymentMethod = "COD" | "ONLINE";
+type PaymentMethod = "COD";
 type DeliveryMethod = "STANDARD" | "EXPRESS";
 
 interface CheckoutForm {
@@ -68,6 +69,17 @@ interface SavedAddress {
   isDefault: boolean;
 }
 
+interface CartReconcileResponse {
+  items?: Array<
+    CartItem & {
+      lineTotal?: number;
+    }
+  >;
+  changed?: boolean;
+  notices?: string[];
+  error?: string;
+}
+
 const initialForm: CheckoutForm = {
   fullName: "",
   email: "",
@@ -88,6 +100,7 @@ export default function CheckoutPage() {
     count,
     total,
     hydrated,
+    replaceCart,
     clearCart,
   } = useCart();
 
@@ -95,14 +108,16 @@ export default function CheckoutPage() {
     useState<CheckoutForm>(initialForm);
   const [errors, setErrors] =
     useState<CheckoutErrors>({});
-  const [paymentMethod, setPaymentMethod] =
-    useState<PaymentMethod>("COD");
+  const paymentMethod: PaymentMethod = "COD";
   const [deliveryMethod, setDeliveryMethod] =
     useState<DeliveryMethod>("STANDARD");
   const [submitting, setSubmitting] =
     useState(false);
   const [submitError, setSubmitError] =
     useState("");
+  const [checkoutNotices, setCheckoutNotices] = useState<
+    string[]
+  >([]);
   const [savedAddresses, setSavedAddresses] =
     useState<SavedAddress[]>([]);
 
@@ -251,6 +266,59 @@ export default function CheckoutPage() {
     return Object.keys(nextErrors).length === 0;
   };
 
+  const reconcileCartBeforeOrder = async () => {
+    const response = await fetch("/api/cart/reconcile", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        items: items.map((item) => ({
+          slug: item.product.slug,
+          size: item.size,
+          color: item.color,
+          quantity: item.quantity,
+        })),
+      }),
+    });
+    const data = (await response.json()) as CartReconcileResponse;
+
+    if (!response.ok) {
+      setSubmitError(
+        data.error ||
+          "Unable to refresh your bag before placing the order.",
+      );
+      return false;
+    }
+
+    if (!data.items || data.items.length === 0) {
+      replaceCart([]);
+      setSubmitError(
+        "Your bag no longer has available products. Please add products again.",
+      );
+      return false;
+    }
+
+    setCheckoutNotices(data.notices || []);
+
+    if (data.changed) {
+      replaceCart(
+        data.items.map((item) => ({
+          product: item.product,
+          quantity: item.quantity,
+          size: item.size,
+          color: item.color,
+        })),
+      );
+      setSubmitError(
+        "Your bag was refreshed with current product data. Please review the updated order before placing it.",
+      );
+      return false;
+    }
+
+    return true;
+  };
+
   const handlePlaceOrder = async (
     event: FormEvent<HTMLFormElement>,
   ) => {
@@ -269,6 +337,12 @@ export default function CheckoutPage() {
     setSubmitting(true);
 
     try {
+      const cartIsCurrent = await reconcileCartBeforeOrder();
+
+      if (!cartIsCurrent) {
+        return;
+      }
+
       const response = await fetch("/api/orders", {
         method: "POST",
         headers: {
@@ -278,6 +352,7 @@ export default function CheckoutPage() {
           items: items.map((item) => ({
             slug: item.product.slug,
             size: item.size,
+            color: item.color,
             quantity: item.quantity,
           })),
           shippingAddress: form,
@@ -302,7 +377,7 @@ export default function CheckoutPage() {
       }
 
       clearCart();
-      router.replace("/order-success");
+      router.replace(`/order-success?order=${data.order.id}`);
       router.refresh();
     } catch {
       setSubmitError("Unable to place your order right now.");
@@ -387,7 +462,7 @@ export default function CheckoutPage() {
             <div>
               <strong>Protected checkout</strong>
               <span>
-                COD is live first. Online payments will be added after secure gateway integration.
+                Cash on Delivery is enabled for launch. Gateway payments are intentionally pending.
               </span>
             </div>
           </div>
@@ -642,63 +717,31 @@ export default function CheckoutPage() {
               <div className="checkout-section-number">04</div>
               <div>
                 <p className="eyebrow">PAYMENT METHOD</p>
-                <h2>How would you like to pay?</h2>
+                <h2>Cash on Delivery is enabled.</h2>
               </div>
-              <CreditCard size={22} />
+              <IndianRupee size={22} />
             </div>
 
             <div className="checkout-option-list">
               <button
                 type="button"
-                className={
-                  paymentMethod === "COD"
-                    ? "checkout-option checkout-option-active"
-                    : "checkout-option"
-                }
-                onClick={() => setPaymentMethod("COD")}
+                className="checkout-option checkout-option-active"
+                aria-pressed="true"
               >
                 <span className="checkout-option-radio">
-                  {paymentMethod === "COD" && <Check size={14} />}
+                  <Check size={14} />
                 </span>
 
                 <div>
                   <strong>Cash on Delivery</strong>
-                  <p>Pay when your WearWorth order arrives.</p>
+                  <p>
+                    Pay when your WearWorth order arrives. Gateway payments are intentionally not enabled yet.
+                  </p>
                 </div>
 
                 <IndianRupee size={20} />
               </button>
-
-              <button
-                type="button"
-                className={
-                  paymentMethod === "ONLINE"
-                    ? "checkout-option checkout-option-active"
-                    : "checkout-option"
-                }
-                onClick={() => setPaymentMethod("ONLINE")}
-              >
-                <span className="checkout-option-radio">
-                  {paymentMethod === "ONLINE" && <Check size={14} />}
-                </span>
-
-                <div>
-                  <strong>Online payment</strong>
-                  <p>Visible foundation only until Razorpay is connected.</p>
-                </div>
-
-                <CreditCard size={20} />
-              </button>
             </div>
-
-            {paymentMethod === "ONLINE" ? (
-              <div className="checkout-payment-note">
-                <ShieldCheck size={20} />
-                <p>
-                  Online payment is not active yet. Switch to Cash on Delivery to place this order today.
-                </p>
-              </div>
-            ) : null}
           </section>
         </div>
 
@@ -719,7 +762,9 @@ export default function CheckoutPage() {
 
           <div className="checkout-summary-items">
             {items.map((item) => (
-              <article key={`${item.product.id}-${item.size}`}>
+              <article
+                key={`${item.product.id}-${item.size}-${item.color}`}
+              >
                 <div className="checkout-summary-image">
                   <Image
                     src={
@@ -738,7 +783,10 @@ export default function CheckoutPage() {
                     <h3>{item.product.name}</h3>
                   </Link>
 
-                  <p>Size {item.size || "Default"}</p>
+                  <p>
+                    Size {item.size || "Default"}
+                    {item.color ? ` / ${item.color}` : ""}
+                  </p>
                   <strong>
                     Rs.
                     {(
@@ -793,16 +841,21 @@ export default function CheckoutPage() {
             <div className="account-form-error">{submitError}</div>
           ) : null}
 
+          {checkoutNotices.length > 0 ? (
+            <div className="checkout-reconcile-note">
+              <strong>Bag refreshed</strong>
+              {checkoutNotices.map((notice) => (
+                <p key={notice}>{notice}</p>
+              ))}
+            </div>
+          ) : null}
+
           <button
             type="submit"
             className="checkout-place-order"
             disabled={submitting}
           >
-            {submitting
-              ? "PLACING ORDER..."
-              : paymentMethod === "COD"
-                ? "PLACE COD ORDER"
-                : "CONTINUE TO PAYMENT"}
+            {submitting ? "PLACING ORDER..." : "PLACE COD ORDER"}
 
             {!submitting && <ChevronRight size={18} />}
           </button>

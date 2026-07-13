@@ -6,9 +6,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
+import { useAuth } from "@/app/context/AuthContext";
 import type { CatalogProduct } from "@/lib/catalog-types";
 
 const WISHLIST_STORAGE_KEY = "wearworth-wishlist";
@@ -64,8 +66,12 @@ export function WishlistProvider({
 }: {
   children: React.ReactNode;
 }) {
+  const { user, loading: authLoading } = useAuth();
   const [wishlistSlugs, setWishlistSlugs] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
+  const mergedAccountUserId = useRef<string | null>(null);
+  const syncingAccountWishlist = useRef(false);
+  const lastSavedAccountSignature = useRef("");
 
   useEffect(() => {
     setWishlistSlugs(readStoredWishlist());
@@ -86,6 +92,122 @@ export function WishlistProvider({
       // The website still works if browser storage is unavailable.
     }
   }, [wishlistSlugs, hydrated]);
+
+  const wishlistSignature = useMemo(
+    () => [...wishlistSlugs].sort().join("|"),
+    [wishlistSlugs],
+  );
+
+  useEffect(() => {
+    if (!hydrated || authLoading) {
+      return;
+    }
+
+    if (!user) {
+      if (mergedAccountUserId.current) {
+        mergedAccountUserId.current = null;
+        lastSavedAccountSignature.current = "";
+        setWishlistSlugs([]);
+      }
+
+      return;
+    }
+
+    if (
+      mergedAccountUserId.current === user.id ||
+      syncingAccountWishlist.current
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    syncingAccountWishlist.current = true;
+
+    const mergeAccountWishlist = async () => {
+      try {
+        const response = await fetch("/api/wishlist", {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            slugs: wishlistSlugs,
+          }),
+        });
+        const data = (await response.json()) as {
+          slugs?: string[];
+        };
+
+        if (!cancelled && response.ok) {
+          const nextSlugs = data.slugs || [];
+          setWishlistSlugs(nextSlugs);
+          mergedAccountUserId.current = user.id;
+          lastSavedAccountSignature.current = [...nextSlugs]
+            .sort()
+            .join("|");
+        }
+      } catch {
+        // Keep the local wishlist available if account sync is unavailable.
+      } finally {
+        syncingAccountWishlist.current = false;
+      }
+    };
+
+    void mergeAccountWishlist();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, hydrated, user, wishlistSlugs]);
+
+  useEffect(() => {
+    if (
+      !hydrated ||
+      authLoading ||
+      !user ||
+      mergedAccountUserId.current !== user.id ||
+      syncingAccountWishlist.current ||
+      lastSavedAccountSignature.current === wishlistSignature
+    ) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      const saveAccountWishlist = async () => {
+        try {
+          const response = await fetch("/api/wishlist", {
+            method: "PUT",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              slugs: wishlistSlugs,
+            }),
+          });
+
+          if (response.ok) {
+            lastSavedAccountSignature.current = wishlistSignature;
+          }
+        } catch {
+          // The browser wishlist remains usable if account sync fails.
+        }
+      };
+
+      void saveAccountWishlist();
+    }, 500);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    authLoading,
+    hydrated,
+    user,
+    wishlistSignature,
+    wishlistSlugs,
+  ]);
 
   useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {

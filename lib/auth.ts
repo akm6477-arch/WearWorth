@@ -7,7 +7,7 @@ import {
 } from "@/lib/prisma";
 import { verifyAuthToken } from "@/lib/jwt";
 
-const AUTH_COOKIE_NAME = "wearworth_token";
+export const AUTH_COOKIE_NAME = "wearworth_token";
 
 export function clearAuthCookie(response: NextResponse) {
   response.cookies.set({
@@ -47,10 +47,10 @@ function buildFallbackUser(
 }
 
 export async function getCurrentUserFromRequest(
-  request: NextRequest | Request,
+  request?: NextRequest | Request,
 ) {
   const cookieStore =
-    "cookies" in request
+    request && "cookies" in request
       ? request.cookies
       : await cookies();
 

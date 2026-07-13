@@ -1,161 +1,122 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdminUser } from "@/lib/auth";
-import { getCatalogProducts } from "@/lib/catalog";
+import {
+  buildSkuFromSlug,
+  normalizeProductBody,
+  validateProductInput,
+  type ProductBody,
+} from "@/lib/admin-product-validation";
+import type { CatalogProduct } from "@/lib/catalog-types";
 import {
   isDatabaseUnavailableError,
   prisma,
 } from "@/lib/prisma";
+import { rateLimit } from "@/lib/rate-limit";
 
-interface ProductBody {
-  slug?: unknown;
-  name?: unknown;
-  category?: unknown;
-  collection?: unknown;
-  statement?: unknown;
-  description?: unknown;
-  price?: unknown;
-  originalPrice?: unknown;
-  image?: unknown;
-  images?: unknown;
-  imagePublicIds?: unknown;
-  sizes?: unknown;
-  stock?: unknown;
-  featured?: unknown;
+function readString(value: unknown, fallback = "") {
+  return typeof value === "string" && value.trim()
+    ? value.trim()
+    : fallback;
 }
 
-function slugify(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+function readNumber(value: unknown, fallback = 0) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : fallback;
 }
 
-function parseStringArray(value: unknown) {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) =>
-        typeof item === "string" ? item.trim() : "",
+function readStringList(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is string =>
+          typeof item === "string" && item.trim().length > 0,
       )
-      .filter(Boolean);
-  }
-
-  if (typeof value === "string") {
-    return value
-      .split(/[\n,]+/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-
-  return [];
+    : [];
 }
 
-function normalizeProductBody(body: ProductBody) {
-  const name =
-    typeof body.name === "string" ? body.name.trim() : "";
-  const slugSource =
-    typeof body.slug === "string" && body.slug.trim()
-      ? body.slug
-      : name;
-  const images = parseStringArray(body.images);
-  const imagePublicIds = parseStringArray(body.imagePublicIds);
-  const primaryImage =
-    typeof body.image === "string" && body.image.trim()
-      ? body.image.trim()
-      : images[0] || "/images/wearworth-logo.jpeg";
+function readObjectId(value: unknown) {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "$oid" in value &&
+    typeof value.$oid === "string"
+  ) {
+    return value.$oid;
+  }
+
+  return readString(value);
+}
+
+function readDate(value: unknown) {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "$date" in value &&
+    typeof value.$date === "string"
+  ) {
+    return value.$date;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  return "2026-01-01T00:00:00.000Z";
+}
+
+function normalizeRawAdminProduct(
+  document: Record<string, unknown>,
+): CatalogProduct {
+  const slug = readString(document.slug);
+  const image = readString(
+    document.image,
+    "/images/wearworth-logo.jpeg",
+  );
+  const images = readStringList(document.images);
 
   return {
-    slug: slugify(slugSource),
-    name,
-    category:
-      typeof body.category === "string"
-        ? body.category.trim()
-        : "",
-    collection:
-      typeof body.collection === "string" &&
-      body.collection.trim()
-        ? body.collection.trim()
-        : null,
-    statement:
-      typeof body.statement === "string"
-        ? body.statement.trim()
-        : "",
-    description:
-      typeof body.description === "string"
-        ? body.description.trim()
-        : "",
-    price:
-      typeof body.price === "number"
-        ? body.price
-        : Number(body.price),
+    id: readObjectId(document._id),
+    slug,
+    sku: readString(document.sku) || buildSkuFromSlug(slug),
+    name: readString(document.name, "Untitled product"),
+    category: readString(document.category, "Uncategorized"),
+    audience:
+      document.audience === "MEN" ||
+      document.audience === "WOMEN" ||
+      document.audience === "UNISEX"
+        ? document.audience
+        : "UNISEX",
+    collection: readString(document.collection) || null,
+    statement: readString(document.statement),
+    description: readString(document.description),
+    price: readNumber(document.price),
     originalPrice:
-      body.originalPrice === null ||
-      body.originalPrice === undefined ||
-      body.originalPrice === ""
-        ? null
-        : typeof body.originalPrice === "number"
-          ? body.originalPrice
-          : Number(body.originalPrice),
-    image: primaryImage,
-    images:
-      images.length > 0
-        ? images
-        : [primaryImage],
-    imagePublicIds,
-    sizes: parseStringArray(body.sizes),
-    stock:
-      typeof body.stock === "number"
-        ? Math.max(0, Math.floor(body.stock))
-        : Math.max(0, Math.floor(Number(body.stock) || 0)),
-    featured: body.featured === true,
+      typeof document.originalPrice === "number"
+        ? document.originalPrice
+        : undefined,
+    image,
+    images: Array.from(new Set([image, ...images].filter(Boolean))),
+    imagePublicIds: readStringList(document.imagePublicIds),
+    colors: readStringList(document.colors),
+    material: readString(document.material, "Cotton blend"),
+    fit: readString(document.fit, "Regular fit"),
+    washCare: readString(
+      document.washCare,
+      "Machine wash cold inside out. Do not bleach.",
+    ),
+    sizes: readStringList(document.sizes),
+    stock: Math.max(0, Math.floor(readNumber(document.stock))),
+    lowStockThreshold: Math.max(
+      0,
+      Math.floor(readNumber(document.lowStockThreshold, 5)),
+    ),
+    featured: document.featured === true,
+    productStatus:
+      document.productStatus === "DRAFT" ? "DRAFT" : "ACTIVE",
+    createdAt: readDate(document.createdAt),
+    updatedAt: readDate(document.updatedAt),
   };
-}
-
-function validateProductInput(
-  product: ReturnType<typeof normalizeProductBody>,
-) {
-  if (!product.slug) {
-    return "Enter a valid product slug or name.";
-  }
-
-  if (product.name.length < 2) {
-    return "Enter the product name.";
-  }
-
-  if (product.category.length < 2) {
-    return "Enter a category.";
-  }
-
-  if (product.statement.length < 5) {
-    return "Enter the product statement.";
-  }
-
-  if (product.description.length < 10) {
-    return "Enter a fuller product description.";
-  }
-
-  if (!Number.isFinite(product.price) || product.price <= 0) {
-    return "Enter a valid product price.";
-  }
-
-  if (
-    product.originalPrice !== null &&
-    (!Number.isFinite(product.originalPrice) ||
-      product.originalPrice < product.price)
-  ) {
-    return "Original price must be empty or greater than or equal to price.";
-  }
-
-  if (!product.image) {
-    return "Enter a primary image URL or path.";
-  }
-
-  if (product.sizes.length === 0) {
-    return "Add at least one size.";
-  }
-
-  return null;
 }
 
 export async function GET(request: NextRequest) {
@@ -165,17 +126,55 @@ export async function GET(request: NextRequest) {
     return authResult.response;
   }
 
-  const { products, source } = await getCatalogProducts({
-    sort: "featured",
-  });
+  try {
+    const rawProducts = await prisma.product.findRaw({
+      options: {
+        sort: {
+          updatedAt: -1,
+          name: 1,
+        },
+      },
+    });
+    const products = Array.isArray(rawProducts)
+      ? rawProducts
+          .filter(
+            (product): product is Record<string, unknown> =>
+              typeof product === "object" && product !== null,
+          )
+          .map(normalizeRawAdminProduct)
+      : [];
 
-  return NextResponse.json({
-    products,
-    source,
-  });
+    return NextResponse.json({
+      products,
+      source: "database",
+    });
+  } catch (error) {
+    console.error("ADMIN_GET_PRODUCTS_API_ERROR", error);
+
+    return NextResponse.json(
+      {
+        error: isDatabaseUnavailableError(error)
+          ? "The database is temporarily unavailable. Product management is blocked until MongoDB reconnects."
+          : "Unable to load admin products right now.",
+      },
+      {
+        status: isDatabaseUnavailableError(error) ? 503 : 500,
+      },
+    );
+  }
 }
 
 export async function POST(request: NextRequest) {
+  const rateLimited = rateLimit(request, {
+    key: "admin-create-product",
+    limit: 40,
+    windowMs: 60 * 1000,
+  });
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const authResult = await requireAdminUser(request);
 
   if (!authResult.user) {
@@ -198,8 +197,42 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const existingProduct = await prisma.product.findFirst({
+      where: {
+        OR: [
+          {
+            slug: product.data.slug,
+          },
+          {
+            sku: product.data.sku,
+          },
+        ],
+      },
+      select: {
+        id: true,
+        slug: true,
+        sku: true,
+      },
+    });
+
+    if (existingProduct) {
+      const duplicateField =
+        existingProduct.slug === product.data.slug
+          ? "slug"
+          : "SKU";
+
+      return NextResponse.json(
+        {
+          error: `A product with this ${duplicateField} already exists.`,
+        },
+        {
+          status: 409,
+        },
+      );
+    }
+
     const createdProduct = await prisma.product.create({
-      data: product,
+      data: product.data,
     });
 
     return NextResponse.json(

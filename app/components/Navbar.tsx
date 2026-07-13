@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import type { FormEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Heart,
   Menu,
@@ -17,9 +19,27 @@ import { useAuth } from "@/app/context/AuthContext";
 import { useCart } from "@/app/context/CartContext";
 import { useWishlist } from "@/app/context/WishlistContext";
 
+function productSearchHref(search?: string, audience?: "MEN" | "WOMEN") {
+  const params = new URLSearchParams();
+
+  if (search) {
+    params.set("search", search);
+  }
+
+  if (audience) {
+    params.set("audience", audience);
+  }
+
+  const query = params.toString();
+
+  return query ? `/products?${query}` : "/products";
+}
+
 export default function Navbar() {
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { count } = useCart();
   const { wishlistCount } = useWishlist();
@@ -30,6 +50,18 @@ export default function Navbar() {
 
   const closeMenu = () => {
     setMenuOpen(false);
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+  };
+
+  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const searchTerm = searchQuery.trim();
+    router.push(productSearchHref(searchTerm || undefined));
+    closeSearch();
   };
 
   const handleLogout = async () => {
@@ -84,26 +116,44 @@ export default function Navbar() {
             <Link href="/products">NEW DROPS</Link>
 
             <div className="nav-dropdown">
-              <Link href="/products">MEN</Link>
+              <Link href="/products?audience=MEN">MEN</Link>
 
               <div className="nav-dropdown-menu">
                 <div>
                   <p>SHOP MEN</p>
 
-                  <Link href="/products">Oversized T-Shirts</Link>
-                  <Link href="/products">Graphic T-Shirts</Link>
-                  <Link href="/products">Shirts</Link>
-                  <Link href="/products">Hoodies</Link>
-                  <Link href="/products">Joggers</Link>
+                  <Link href={productSearchHref("Oversized T-Shirts", "MEN")}>
+                    Oversized T-Shirts
+                  </Link>
+                  <Link href={productSearchHref("Graphic T-Shirts", "MEN")}>
+                    Graphic T-Shirts
+                  </Link>
+                  <Link href={productSearchHref("Shirts", "MEN")}>
+                    Shirts
+                  </Link>
+                  <Link href={productSearchHref("Hoodies", "MEN")}>
+                    Hoodies
+                  </Link>
+                  <Link href={productSearchHref("Joggers", "MEN")}>
+                    Joggers
+                  </Link>
                 </div>
 
                 <div>
                   <p>SHOP BY STORY</p>
 
-                  <Link href="/products">Built From Broken</Link>
-                  <Link href="/products">Dreams Don&apos;t Sleep</Link>
-                  <Link href="/products">Quiet Power</Link>
-                  <Link href="/products">Still Becoming</Link>
+                  <Link href={productSearchHref("Built From Broken", "MEN")}>
+                    Built From Broken
+                  </Link>
+                  <Link href={productSearchHref("Dreams Don't Sleep", "MEN")}>
+                    Dreams Don&apos;t Sleep
+                  </Link>
+                  <Link href={productSearchHref("Quiet Power", "MEN")}>
+                    Quiet Power
+                  </Link>
+                  <Link href={productSearchHref("Still Becoming", "MEN")}>
+                    Still Becoming
+                  </Link>
                 </div>
 
                 <div className="nav-feature-card">
@@ -115,26 +165,44 @@ export default function Navbar() {
             </div>
 
             <div className="nav-dropdown">
-              <Link href="/products">WOMEN</Link>
+              <Link href="/products?audience=WOMEN">WOMEN</Link>
 
               <div className="nav-dropdown-menu nav-dropdown-menu-women">
                 <div>
                   <p>SHOP WOMEN</p>
 
-                  <Link href="/products">Oversized T-Shirts</Link>
-                  <Link href="/products">Graphic T-Shirts</Link>
-                  <Link href="/products">Crop Tops</Link>
-                  <Link href="/products">Hoodies</Link>
-                  <Link href="/products">Joggers</Link>
+                  <Link href={productSearchHref("Oversized T-Shirts", "WOMEN")}>
+                    Oversized T-Shirts
+                  </Link>
+                  <Link href={productSearchHref("Graphic T-Shirts", "WOMEN")}>
+                    Graphic T-Shirts
+                  </Link>
+                  <Link href={productSearchHref("Crop Tops", "WOMEN")}>
+                    Crop Tops
+                  </Link>
+                  <Link href={productSearchHref("Hoodies", "WOMEN")}>
+                    Hoodies
+                  </Link>
+                  <Link href={productSearchHref("Joggers", "WOMEN")}>
+                    Joggers
+                  </Link>
                 </div>
 
                 <div>
                   <p>SHOP BY FEELING</p>
 
-                  <Link href="/products">Self-Worth</Link>
-                  <Link href="/products">Soft Strength</Link>
-                  <Link href="/products">No Permission Needed</Link>
-                  <Link href="/products">Own Your Story</Link>
+                  <Link href={productSearchHref("Self-Worth", "WOMEN")}>
+                    Self-Worth
+                  </Link>
+                  <Link href={productSearchHref("Soft Strength", "WOMEN")}>
+                    Soft Strength
+                  </Link>
+                  <Link href={productSearchHref("No Permission Needed", "WOMEN")}>
+                    No Permission Needed
+                  </Link>
+                  <Link href={productSearchHref("Own Your Story", "WOMEN")}>
+                    Own Your Story
+                  </Link>
                 </div>
 
                 <div className="nav-feature-card nav-feature-card-light">
@@ -252,12 +320,12 @@ export default function Navbar() {
               New Drops
             </Link>
 
-            <Link href="/products" onClick={closeMenu}>
+            <Link href="/products?audience=MEN" onClick={closeMenu}>
               <span>02</span>
               Men
             </Link>
 
-            <Link href="/products" onClick={closeMenu}>
+            <Link href="/products?audience=WOMEN" onClick={closeMenu}>
               <span>03</span>
               Women
             </Link>
@@ -337,7 +405,7 @@ export default function Navbar() {
 
           <button
             type="button"
-            onClick={() => setSearchOpen(false)}
+            onClick={closeSearch}
             aria-label="Close search"
           >
             <X size={25} />
@@ -346,14 +414,14 @@ export default function Navbar() {
 
         <div className="search-panel-content container">
           <form
-            onSubmit={(event) => {
-              event.preventDefault();
-            }}
+            onSubmit={handleSearchSubmit}
           >
             <Search size={28} />
 
             <input
               type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search by product, story or feeling"
               autoFocus={searchOpen}
             />
@@ -363,16 +431,25 @@ export default function Navbar() {
 
           <div className="search-suggestions">
             <span>POPULAR:</span>
-            <Link href="/products" onClick={() => setSearchOpen(false)}>
+            <Link
+              href={productSearchHref("Oversized T-Shirts")}
+              onClick={closeSearch}
+            >
               Oversized T-Shirts
             </Link>
-            <Link href="/products" onClick={() => setSearchOpen(false)}>
+            <Link
+              href={productSearchHref("Still Becoming")}
+              onClick={closeSearch}
+            >
               Still Becoming
             </Link>
-            <Link href="/products" onClick={() => setSearchOpen(false)}>
+            <Link href={productSearchHref("Hoodies")} onClick={closeSearch}>
               Hoodies
             </Link>
-            <Link href="/products" onClick={() => setSearchOpen(false)}>
+            <Link
+              href={productSearchHref("Quiet Power")}
+              onClick={closeSearch}
+            >
               Quiet Power
             </Link>
           </div>

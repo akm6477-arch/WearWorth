@@ -1,6 +1,17 @@
 import Link from "next/link";
 
-export default function OrderSuccessPage() {
+export default async function OrderSuccessPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    order?: string;
+  }>;
+}) {
+  const params = await searchParams;
+  const orderHref = params.order
+    ? `/orders/${params.order}`
+    : "/orders";
+
   return (
     <main className="account-utility-page">
       <section className="container account-utility-card">
@@ -13,8 +24,8 @@ export default function OrderSuccessPage() {
         </p>
 
         <div className="account-utility-actions">
-          <Link href="/orders" className="button primary">
-            VIEW ORDERS
+          <Link href={orderHref} className="button primary">
+            VIEW ORDER
           </Link>
           <Link href="/products" className="button ghost">
             CONTINUE SHOPPING

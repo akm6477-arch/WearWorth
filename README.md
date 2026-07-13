@@ -18,4 +18,4 @@ A Next.js full-stack starter for an identity-led fashion brand.
 - Uploaded WearWorth logo
 
 ## Next production sprints
-Authentication, admin product management, Cloudinary images, checkout/address management, Razorpay, order APIs, reviews, search/filtering, analytics, SEO and deployment.
+Category and collection management, coupons, reviews, analytics, SEO polish, legal/customer-care review, and future online payment integration.

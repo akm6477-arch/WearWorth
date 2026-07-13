@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/hash";
 import { createAuthToken } from "@/lib/jwt";
+import { rateLimit } from "@/lib/rate-limit";
 
 interface LoginRequestBody {
   email?: unknown;
@@ -15,6 +16,16 @@ function normalizeEmail(email: string) {
 }
 
 export async function POST(request: Request) {
+  const rateLimited = rateLimit(request, {
+    key: "auth-login",
+    limit: 10,
+    windowMs: 60 * 1000,
+  });
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   try {
     const body = (await request.json()) as LoginRequestBody;
 

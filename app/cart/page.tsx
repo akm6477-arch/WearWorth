@@ -1,6 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -15,9 +20,23 @@ import {
   Truck,
 } from "lucide-react";
 
-import { useCart } from "@/app/context/CartContext";
+import {
+  type CartItem,
+  useCart,
+} from "@/app/context/CartContext";
 
 const FREE_SHIPPING_THRESHOLD = 999;
+
+interface CartReconcileResponse {
+  items?: Array<
+    CartItem & {
+      lineTotal?: number;
+    }
+  >;
+  changed?: boolean;
+  notices?: string[];
+  error?: string;
+}
 
 export default function CartPage() {
   const {
@@ -28,58 +47,125 @@ export default function CartPage() {
     increaseQuantity,
     decreaseQuantity,
     removeFromCart,
+    replaceCart,
     clearCart,
   } = useCart();
-
-  const [coupon, setCoupon] = useState("");
-  const [couponMessage, setCouponMessage] = useState("");
-  const [couponApplied, setCouponApplied] = useState(false);
-
-  const discount = couponApplied ? Math.round(total * 0.1) : 0;
-  const discountedSubtotal = Math.max(total - discount, 0);
+  const [cartNotices, setCartNotices] = useState<string[]>([]);
+  const [refreshingCart, setRefreshingCart] = useState(false);
+  const lastReconciledSignature = useRef("");
 
   const shipping =
-    discountedSubtotal >= FREE_SHIPPING_THRESHOLD ||
-    discountedSubtotal === 0
+    total >= FREE_SHIPPING_THRESHOLD ||
+    total === 0
       ? 0
       : 99;
 
-  const finalTotal = discountedSubtotal + shipping;
+  const finalTotal = total + shipping;
 
   const amountRemainingForFreeShipping = Math.max(
-    FREE_SHIPPING_THRESHOLD - discountedSubtotal,
+    FREE_SHIPPING_THRESHOLD - total,
     0,
   );
 
   const shippingProgress = useMemo(() => {
-    if (discountedSubtotal <= 0) {
+    if (total <= 0) {
       return 0;
     }
 
     return Math.min(
-      (discountedSubtotal / FREE_SHIPPING_THRESHOLD) * 100,
+      (total / FREE_SHIPPING_THRESHOLD) * 100,
       100,
     );
-  }, [discountedSubtotal]);
+  }, [total]);
 
-  const applyCoupon = () => {
-    const normalizedCoupon = coupon.trim().toUpperCase();
+  const cartSignature = useMemo(
+    () =>
+      items
+        .map(
+          (item) =>
+            `${item.product.slug}:${item.size}:${item.color}:${item.quantity}`,
+        )
+        .join("|"),
+    [items],
+  );
 
-    if (!normalizedCoupon) {
-      setCouponApplied(false);
-      setCouponMessage("Enter a coupon code.");
+  useEffect(() => {
+    if (
+      !hydrated ||
+      !items.length ||
+      !cartSignature ||
+      lastReconciledSignature.current === cartSignature
+    ) {
       return;
     }
 
-    if (normalizedCoupon === "WEAR10") {
-      setCouponApplied(true);
-      setCouponMessage("WEAR10 applied — 10% discount added.");
-      return;
-    }
+    let cancelled = false;
+    lastReconciledSignature.current = cartSignature;
 
-    setCouponApplied(false);
-    setCouponMessage("This coupon code is not valid.");
-  };
+    const reconcileCart = async () => {
+      setRefreshingCart(true);
+
+      try {
+        const response = await fetch("/api/cart/reconcile", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            items: items.map((item) => ({
+              slug: item.product.slug,
+              size: item.size,
+              color: item.color,
+              quantity: item.quantity,
+            })),
+          }),
+        });
+        const data =
+          (await response.json()) as CartReconcileResponse;
+
+        if (cancelled) {
+          return;
+        }
+
+        if (!response.ok) {
+          setCartNotices([
+            data.error ||
+              "Unable to refresh current product availability.",
+          ]);
+          return;
+        }
+
+        if (data.changed && data.items) {
+          replaceCart(
+            data.items.map((item) => ({
+              product: item.product,
+              quantity: item.quantity,
+              size: item.size,
+              color: item.color,
+            })),
+          );
+        }
+
+        setCartNotices(data.notices || []);
+      } catch {
+        if (!cancelled) {
+          setCartNotices([
+            "Unable to refresh current product availability.",
+          ]);
+        }
+      } finally {
+        if (!cancelled) {
+          setRefreshingCart(false);
+        }
+      }
+    };
+
+    void reconcileCart();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cartSignature, hydrated, items, replaceCart]);
 
   if (!hydrated) {
     return (
@@ -176,7 +262,7 @@ export default function CartPage() {
                   return (
                     <article
                       className="premium-cart-item"
-                      key={`${item.product.id}-${item.size}`}
+                      key={`${item.product.id}-${item.size}-${item.color}`}
                     >
                       <Link
                         href={`/products/${item.product.slug}`}
@@ -205,15 +291,18 @@ export default function CartPage() {
                             </Link>
 
                             <span>Size: {item.size || "Default"}</span>
+                            {item.color ? (
+                              <span>Color: {item.color}</span>
+                            ) : null}
                           </div>
 
                           <strong>
-                            ₹{itemTotal.toLocaleString("en-IN")}
+                            Rs.{itemTotal.toLocaleString("en-IN")}
                           </strong>
                         </div>
 
                         <blockquote>
-                          “{item.product.statement}”
+                          "{item.product.statement}"
                         </blockquote>
 
                         <div className="premium-cart-actions">
@@ -224,6 +313,7 @@ export default function CartPage() {
                                 decreaseQuantity(
                                   item.product.id,
                                   item.size,
+                                  item.color,
                                 )
                               }
                               aria-label={`Decrease quantity of ${item.product.name}`}
@@ -239,6 +329,7 @@ export default function CartPage() {
                                 increaseQuantity(
                                   item.product.id,
                                   item.size,
+                                  item.color,
                                 )
                               }
                               disabled={item.quantity >= 10}
@@ -255,6 +346,7 @@ export default function CartPage() {
                               removeFromCart(
                                 item.product.id,
                                 item.size,
+                                item.color,
                               )
                             }
                           >
@@ -264,7 +356,7 @@ export default function CartPage() {
                         </div>
 
                         <div className="premium-cart-unit-price">
-                          ₹{item.product.price.toLocaleString("en-IN")} each
+                          Rs.{item.product.price.toLocaleString("en-IN")} each
                         </div>
                       </div>
                     </article>
@@ -278,7 +370,7 @@ export default function CartPage() {
 
                   <div>
                     <strong>Free shipping</strong>
-                    <span>On qualifying orders above ₹999</span>
+                    <span>On qualifying orders above Rs.999</span>
                   </div>
                 </article>
 
@@ -287,7 +379,7 @@ export default function CartPage() {
 
                   <div>
                     <strong>Protected checkout</strong>
-                    <span>Secure payment foundation</span>
+                    <span>Cash on Delivery available</span>
                   </div>
                 </article>
 
@@ -312,7 +404,7 @@ export default function CartPage() {
                   <p>
                     Add{" "}
                     <strong>
-                      ₹
+                      Rs.
                       {amountRemainingForFreeShipping.toLocaleString(
                         "en-IN",
                       )}
@@ -336,60 +428,41 @@ export default function CartPage() {
               </div>
 
               <div className="cart-coupon">
-                <label htmlFor="coupon">COUPON CODE</label>
-
-                <div>
-                  <input
-                    id="coupon"
-                    type="text"
-                    value={coupon}
-                    onChange={(event) =>
-                      setCoupon(event.target.value)
-                    }
-                    placeholder="Try WEAR10"
-                  />
-
-                  <button type="button" onClick={applyCoupon}>
-                    APPLY
-                  </button>
-                </div>
-
-                {couponMessage && (
-                  <p
-                    className={
-                      couponApplied
-                        ? "cart-coupon-success"
-                        : "cart-coupon-error"
-                    }
-                  >
-                    {couponMessage}
-                  </p>
-                )}
+                <strong>Coupons are not active yet.</strong>
+                <p>
+                  Discounts will appear here only after server-side coupon validation is connected.
+                </p>
               </div>
+
+              {refreshingCart ? (
+                <p className="cart-refreshing-note">
+                  Refreshing product price and stock...
+                </p>
+              ) : null}
+
+              {cartNotices.length > 0 ? (
+                <div className="cart-reconcile-note">
+                  <strong>Bag updated</strong>
+                  {cartNotices.map((notice) => (
+                    <p key={notice}>{notice}</p>
+                  ))}
+                </div>
+              ) : null}
 
               <div className="cart-price-breakdown">
                 <div>
                   <span>Subtotal</span>
                   <strong>
-                    ₹{total.toLocaleString("en-IN")}
+                    Rs.{total.toLocaleString("en-IN")}
                   </strong>
                 </div>
-
-                {discount > 0 && (
-                  <div className="cart-discount-line">
-                    <span>Coupon discount</span>
-                    <strong>
-                      −₹{discount.toLocaleString("en-IN")}
-                    </strong>
-                  </div>
-                )}
 
                 <div>
                   <span>Shipping</span>
                   <strong>
                     {shipping === 0
                       ? "FREE"
-                      : `₹${shipping.toLocaleString("en-IN")}`}
+                      : `Rs.${shipping.toLocaleString("en-IN")}`}
                   </strong>
                 </div>
               </div>
@@ -398,7 +471,7 @@ export default function CartPage() {
                 <span>Total</span>
 
                 <strong>
-                  ₹{finalTotal.toLocaleString("en-IN")}
+                  Rs.{finalTotal.toLocaleString("en-IN")}
                 </strong>
               </div>
 

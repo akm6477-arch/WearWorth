@@ -5,10 +5,12 @@ import Link from "next/link";
 import { Heart, ShoppingBag, Trash2 } from "lucide-react";
 
 import ProductCard from "@/app/components/ProductCard";
+import { useAuth } from "@/app/context/AuthContext";
 import { useWishlist } from "@/app/context/WishlistContext";
 import type { CatalogProduct } from "@/lib/catalog-types";
 
 export default function WishlistPage() {
+  const { authenticated } = useAuth();
   const {
     wishlistSlugs,
     wishlistCount,
@@ -91,7 +93,11 @@ export default function WishlistPage() {
                     : "PRODUCTS"}
                 </p>
 
-                <span>Your wishlist is stored in this browser.</span>
+                <span>
+                  {authenticated
+                    ? "Your wishlist is synced to your WearWorth account."
+                    : "Your wishlist is stored in this browser."}
+                </span>
               </div>
 
               <button type="button" onClick={clearWishlist}>

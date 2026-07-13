@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 
+import { isValidCloudinaryPublicId } from "@/lib/admin-product-validation";
+
 interface CloudinaryUploadResult {
   secure_url: string;
   public_id: string;
@@ -14,9 +16,9 @@ interface CloudinaryDeleteResult {
 }
 
 function getCloudinaryConfig() {
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-  const apiKey = process.env.CLOUDINARY_API_KEY;
-  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME?.trim();
+  const apiKey = process.env.CLOUDINARY_API_KEY?.trim();
+  const apiSecret = process.env.CLOUDINARY_API_SECRET?.trim();
 
   if (!cloudName || !apiKey || !apiSecret) {
     throw new Error(
@@ -32,11 +34,13 @@ function getCloudinaryConfig() {
 }
 
 function signParameters(
-  parameters: Record<string, string | number>,
+  parameters: Record<string, string | number | undefined>,
   apiSecret: string,
 ) {
   const signatureBase = Object.entries(parameters)
-    .filter(([, value]) => value !== "")
+    .filter(
+      ([, value]) => value !== undefined && value !== "",
+    )
     .sort(([firstKey], [secondKey]) =>
       firstKey.localeCompare(secondKey),
     )
@@ -51,10 +55,24 @@ function signParameters(
 
 export function isCloudinaryConfigured() {
   return Boolean(
-    process.env.CLOUDINARY_CLOUD_NAME &&
-      process.env.CLOUDINARY_API_KEY &&
-      process.env.CLOUDINARY_API_SECRET,
+    process.env.CLOUDINARY_CLOUD_NAME?.trim() &&
+      process.env.CLOUDINARY_API_KEY?.trim() &&
+      process.env.CLOUDINARY_API_SECRET?.trim(),
   );
+}
+
+function normalizeCloudinaryFolder(folder: string) {
+  const normalizedFolder = folder.trim().replace(/^\/+|\/+$/g, "");
+
+  if (
+    !normalizedFolder ||
+    normalizedFolder.length > 120 ||
+    !/^[A-Za-z0-9_/-]+$/.test(normalizedFolder)
+  ) {
+    throw new Error("Invalid Cloudinary folder.");
+  }
+
+  return normalizedFolder;
 }
 
 export async function uploadImageToCloudinary(
@@ -63,12 +81,16 @@ export async function uploadImageToCloudinary(
 ): Promise<CloudinaryUploadResult> {
   const { cloudName, apiKey, apiSecret } =
     getCloudinaryConfig();
+  const normalizedFolder = normalizeCloudinaryFolder(folder);
 
   const timestamp = Math.floor(Date.now() / 1000);
 
   const uploadParams = {
-    folder,
+    folder: normalizedFolder,
+    overwrite: "false",
     timestamp,
+    unique_filename: "true",
+    use_filename: "true",
   };
 
   const signature = signParameters(
@@ -81,7 +103,10 @@ export async function uploadImageToCloudinary(
   formData.set("file", file);
   formData.set("api_key", apiKey);
   formData.set("timestamp", String(timestamp));
-  formData.set("folder", folder);
+  formData.set("folder", normalizedFolder);
+  formData.set("use_filename", "true");
+  formData.set("unique_filename", "true");
+  formData.set("overwrite", "false");
   formData.set("signature", signature);
 
   const response = await fetch(
@@ -125,6 +150,10 @@ export async function deleteCloudinaryImage(
     return {
       result: "not found",
     };
+  }
+
+  if (!isValidCloudinaryPublicId(normalizedPublicId)) {
+    throw new Error("Invalid Cloudinary public ID.");
   }
 
   const { cloudName, apiKey, apiSecret } =
@@ -186,7 +215,8 @@ export async function deleteCloudinaryImages(
     new Set(
       publicIds
         .map((publicId) => publicId.trim())
-        .filter(Boolean),
+        .filter(Boolean)
+        .filter(isValidCloudinaryPublicId),
     ),
   );
 

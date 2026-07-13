@@ -8,13 +8,19 @@ export function sanitizeRedirectPath(
     return fallback;
   }
 
-  if (!value.startsWith("/")) {
+  const path = value.trim();
+
+  if (!path.startsWith("/")) {
     return fallback;
   }
 
-  if (value.startsWith("//")) {
+  if (
+    path.startsWith("//") ||
+    path.startsWith("/\\") ||
+    path.includes("://")
+  ) {
     return fallback;
   }
 
-  return value;
+  return path;
 }

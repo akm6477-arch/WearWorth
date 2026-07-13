@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/hash";
 import { createAuthToken } from "@/lib/jwt";
+import { rateLimit } from "@/lib/rate-limit";
 
 interface RegisterRequestBody {
   name?: unknown;
@@ -24,6 +25,16 @@ function validatePassword(password: string) {
 }
 
 export async function POST(request: Request) {
+  const rateLimited = rateLimit(request, {
+    key: "auth-register",
+    limit: 5,
+    windowMs: 5 * 60 * 1000,
+  });
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   try {
     const body = (await request.json()) as RegisterRequestBody;
 

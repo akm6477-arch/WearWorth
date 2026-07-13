@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "db:verify-products": "node scripts/verify-product-data.mjs",
+    "db:backfill-products": "node scripts/backfill-legacy-products.mjs --apply"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

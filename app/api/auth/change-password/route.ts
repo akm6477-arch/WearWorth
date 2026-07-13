@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuthUser } from "@/lib/auth";
 import { hashPassword, verifyPassword } from "@/lib/hash";
 import { prisma } from "@/lib/prisma";
+import { rateLimit } from "@/lib/rate-limit";
 
 interface ChangePasswordBody {
   currentPassword?: unknown;
@@ -19,6 +20,16 @@ function validatePassword(password: string) {
 }
 
 export async function POST(request: NextRequest) {
+  const rateLimited = rateLimit(request, {
+    key: "auth-change-password",
+    limit: 5,
+    windowMs: 5 * 60 * 1000,
+  });
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const authResult = await requireAuthUser(request);
 
   if (!authResult.user) {

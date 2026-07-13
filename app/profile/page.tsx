@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -9,8 +9,11 @@ import {
   LogOut,
   MapPin,
   Package,
+  Pencil,
+  Save,
   ShieldCheck,
   ShoppingBag,
+  X,
   UserRound,
 } from "lucide-react";
 
@@ -25,17 +28,116 @@ export default function ProfilePage() {
     user,
     loading,
     authenticated,
+    updateProfile,
     logout,
   } = useAuth();
 
   const { count: cartCount } = useCart();
   const { wishlistCount } = useWishlist();
+  const [ordersCount, setOrdersCount] = useState(0);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState("");
+  const [profileMessage, setProfileMessage] = useState("");
+  const [profileForm, setProfileForm] = useState({
+    name: "",
+    email: "",
+  });
 
   useEffect(() => {
     if (!loading && !authenticated) {
       router.replace("/login?redirect=/profile");
     }
   }, [authenticated, loading, router]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    setProfileForm({
+      name: user.name,
+      email: user.email,
+    });
+  }, [user]);
+
+  useEffect(() => {
+    if (!authenticated) {
+      return;
+    }
+
+    let active = true;
+
+    const loadOrdersCount = async () => {
+      try {
+        const response = await fetch("/api/orders", {
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          return;
+        }
+
+        const data = (await response.json()) as {
+          orders?: unknown[];
+        };
+
+        if (active) {
+          setOrdersCount(data.orders?.length || 0);
+        }
+      } catch {
+        if (active) {
+          setOrdersCount(0);
+        }
+      }
+    };
+
+    void loadOrdersCount();
+
+    return () => {
+      active = false;
+    };
+  }, [authenticated]);
+
+  const handleProfileSubmit = async (
+    event: FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+    setProfileError("");
+    setProfileMessage("");
+    setSavingProfile(true);
+
+    const result = await updateProfile({
+      name: profileForm.name,
+      email: profileForm.email,
+    });
+
+    setSavingProfile(false);
+
+    if (!result.success) {
+      setProfileError(
+        result.error || "Unable to update your profile.",
+      );
+      return;
+    }
+
+    setEditingProfile(false);
+    setProfileMessage("Profile updated successfully.");
+    router.refresh();
+  };
+
+  const cancelProfileEdit = () => {
+    if (user) {
+      setProfileForm({
+        name: user.name,
+        email: user.email,
+      });
+    }
+
+    setEditingProfile(false);
+    setProfileError("");
+    setProfileMessage("");
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -143,7 +245,7 @@ export default function ProfilePage() {
                 <Package size={22} />
 
                 <div>
-                  <strong>0</strong>
+                  <strong>{ordersCount}</strong>
                   <span>orders placed</span>
                 </div>
 
@@ -164,38 +266,115 @@ export default function ProfilePage() {
                   <h3>Your account details</h3>
                 </div>
 
-                <UserRound size={22} />
+                {editingProfile ? (
+                  <button
+                    type="button"
+                    className="button ghost"
+                    onClick={cancelProfileEdit}
+                  >
+                    <X size={16} />
+                    CANCEL
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="button ghost"
+                    onClick={() => {
+                      setEditingProfile(true);
+                      setProfileError("");
+                      setProfileMessage("");
+                    }}
+                  >
+                    <Pencil size={16} />
+                    EDIT
+                  </button>
+                )}
               </div>
 
-              <div className="profile-detail-list">
-                <div>
-                  <span>FULL NAME</span>
-                  <strong>{user.name}</strong>
-                </div>
+              {profileError ? (
+                <div className="account-form-error">{profileError}</div>
+              ) : null}
 
-                <div>
-                  <span>EMAIL ADDRESS</span>
-                  <strong>{user.email}</strong>
+              {profileMessage ? (
+                <div className="account-form-success">
+                  {profileMessage}
                 </div>
+              ) : null}
 
-                <div>
-                  <span>ACCOUNT ROLE</span>
-                  <strong>{user.role}</strong>
-                </div>
+              {editingProfile ? (
+                <form
+                  className="admin-product-form"
+                  onSubmit={handleProfileSubmit}
+                >
+                  <label>
+                    <span>FULL NAME</span>
+                    <input
+                      value={profileForm.name}
+                      onChange={(event) =>
+                        setProfileForm((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
 
-                <div>
-                  <span>MEMBER SINCE</span>
-                  <strong>
-                    {new Date(
-                      user.createdAt,
-                    ).toLocaleDateString("en-IN", {
-                      day: "2-digit",
-                      month: "long",
-                      year: "numeric",
-                    })}
-                  </strong>
+                  <label>
+                    <span>EMAIL ADDRESS</span>
+                    <input
+                      type="email"
+                      value={profileForm.email}
+                      onChange={(event) =>
+                        setProfileForm((current) => ({
+                          ...current,
+                          email: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+
+                  <div className="account-utility-actions">
+                    <button
+                      type="submit"
+                      className="button primary"
+                      disabled={savingProfile}
+                    >
+                      <Save size={16} />
+                      {savingProfile ? "SAVING..." : "SAVE PROFILE"}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="profile-detail-list">
+                  <div>
+                    <span>FULL NAME</span>
+                    <strong>{user.name}</strong>
+                  </div>
+
+                  <div>
+                    <span>EMAIL ADDRESS</span>
+                    <strong>{user.email}</strong>
+                  </div>
+
+                  <div>
+                    <span>ACCOUNT ROLE</span>
+                    <strong>{user.role}</strong>
+                  </div>
+
+                  <div>
+                    <span>MEMBER SINCE</span>
+                    <strong>
+                      {new Date(
+                        user.createdAt,
+                      ).toLocaleDateString("en-IN", {
+                        day: "2-digit",
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </strong>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 

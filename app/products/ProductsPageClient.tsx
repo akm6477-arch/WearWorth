@@ -6,24 +6,40 @@ import { Search, SlidersHorizontal, X } from "lucide-react";
 import ProductCard from "@/app/components/ProductCard";
 import type {
   CatalogProduct,
+  ProductAudience,
   ProductSortOption,
 } from "@/lib/catalog-types";
 
 interface ProductsPageClientProps {
   initialCategories: string[];
+  initialAudiences: ProductAudience[];
   initialProducts: CatalogProduct[];
   initialSource: string;
+  initialSearch: string;
+  initialSelectedCategory: string;
+  initialSelectedAudience: string;
+  initialSort: ProductSortOption;
 }
 
 export default function ProductsPageClient({
   initialCategories,
+  initialAudiences,
   initialProducts,
   initialSource,
+  initialSearch,
+  initialSelectedCategory,
+  initialSelectedAudience,
+  initialSort,
 }: ProductsPageClientProps) {
-  const [search, setSearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [search, setSearch] = useState(initialSearch);
+  const [selectedCategory, setSelectedCategory] = useState(
+    initialSelectedCategory,
+  );
+  const [selectedAudience, setSelectedAudience] = useState(
+    initialSelectedAudience,
+  );
   const [sortBy, setSortBy] =
-    useState<ProductSortOption>("featured");
+    useState<ProductSortOption>(initialSort);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [products, setProducts] =
     useState<CatalogProduct[]>(initialProducts);
@@ -31,20 +47,26 @@ export default function ProductsPageClient({
     "All",
     ...initialCategories,
   ]);
+  const [audiences, setAudiences] = useState<string[]>([
+    "All",
+    ...initialAudiences,
+  ]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [source, setSource] = useState(initialSource);
 
   useEffect(() => {
     const controller = new AbortController();
-    const shouldLoadFromApi =
-      search.trim().length > 0 ||
-      selectedCategory !== "All" ||
-      sortBy !== "featured";
+    const matchesInitialState =
+      search === initialSearch &&
+      selectedCategory === initialSelectedCategory &&
+      selectedAudience === initialSelectedAudience &&
+      sortBy === initialSort;
 
-    if (!shouldLoadFromApi) {
+    if (matchesInitialState) {
       setProducts(initialProducts);
       setCategories(["All", ...initialCategories]);
+      setAudiences(["All", ...initialAudiences]);
       setSource(initialSource);
       setLoading(false);
       setError("");
@@ -68,6 +90,10 @@ export default function ProductsPageClient({
           params.set("category", selectedCategory);
         }
 
+        if (selectedAudience !== "All") {
+          params.set("audience", selectedAudience);
+        }
+
         params.set("sort", sortBy);
 
         const response = await fetch(
@@ -81,6 +107,7 @@ export default function ProductsPageClient({
         const data = (await response.json()) as {
           products?: CatalogProduct[];
           categories?: string[];
+          audiences?: ProductAudience[];
           source?: string;
           error?: string;
         };
@@ -92,6 +119,7 @@ export default function ProductsPageClient({
 
         setProducts(data.products || []);
         setCategories(["All", ...(data.categories || [])]);
+        setAudiences(["All", ...(data.audiences || [])]);
         setSource(data.source || "");
       } catch (requestError) {
         if ((requestError as Error).name !== "AbortError") {
@@ -109,9 +137,15 @@ export default function ProductsPageClient({
     };
   }, [
     initialCategories,
+    initialAudiences,
     initialProducts,
     initialSource,
+    initialSearch,
+    initialSelectedCategory,
+    initialSelectedAudience,
+    initialSort,
     search,
+    selectedAudience,
     selectedCategory,
     sortBy,
   ]);
@@ -119,12 +153,14 @@ export default function ProductsPageClient({
   const clearFilters = () => {
     setSearch("");
     setSelectedCategory("All");
+    setSelectedAudience("All");
     setSortBy("featured");
   };
 
   const hasActiveFilters =
     search.trim().length > 0 ||
     selectedCategory !== "All" ||
+    selectedAudience !== "All" ||
     sortBy !== "featured";
 
   const categoryCounts = useMemo(() => {
@@ -143,6 +179,23 @@ export default function ProductsPageClient({
       {},
     );
   }, [categories, products]);
+
+  const audienceCounts = useMemo(() => {
+    return audiences.reduce<Record<string, number>>(
+      (counts, audience) => {
+        if (audience === "All") {
+          counts[audience] = products.length;
+        } else {
+          counts[audience] = products.filter(
+            (product) => product.audience === audience,
+          ).length;
+        }
+
+        return counts;
+      },
+      {},
+    );
+  }, [audiences, products]);
 
   return (
     <main className="products-page">
@@ -269,6 +322,28 @@ export default function ProductsPageClient({
             </div>
           </div>
 
+          <div className="products-filter-group">
+            <p>AUDIENCE</p>
+
+            <div className="products-category-list">
+              {audiences.map((audience) => (
+                <button
+                  type="button"
+                  key={audience}
+                  className={
+                    selectedAudience === audience
+                      ? "products-category-active"
+                      : ""
+                  }
+                  onClick={() => setSelectedAudience(audience)}
+                >
+                  <span>{audience}</span>
+                  <small>{audienceCounts[audience] || 0}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="products-sidebar-story">
             <span>THE WEARWORTH BELIEF</span>
             <blockquote>
@@ -287,6 +362,9 @@ export default function ProductsPageClient({
 
               {selectedCategory !== "All" && (
                 <span>Category: {selectedCategory}</span>
+              )}
+              {selectedAudience !== "All" && (
+                <span>Audience: {selectedAudience}</span>
               )}
             </div>
 
@@ -369,6 +447,27 @@ export default function ProductsPageClient({
                 >
                   <span>{category}</span>
                   <small>{categoryCounts[category] || 0}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="products-filter-group">
+            <p>AUDIENCE</p>
+            <div className="products-category-list">
+              {audiences.map((audience) => (
+                <button
+                  type="button"
+                  key={audience}
+                  className={
+                    selectedAudience === audience
+                      ? "products-category-active"
+                      : ""
+                  }
+                  onClick={() => setSelectedAudience(audience)}
+                >
+                  <span>{audience}</span>
+                  <small>{audienceCounts[audience] || 0}</small>
                 </button>
               ))}
             </div>

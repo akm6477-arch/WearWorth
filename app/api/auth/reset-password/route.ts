@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { hashPassword } from "@/lib/hash";
 import { prisma } from "@/lib/prisma";
+import { rateLimit } from "@/lib/rate-limit";
 
 interface ResetPasswordBody {
   token?: unknown;
@@ -19,6 +20,16 @@ function validatePassword(password: string) {
 }
 
 export async function POST(request: Request) {
+  const rateLimited = rateLimit(request, {
+    key: "auth-reset-password",
+    limit: 5,
+    windowMs: 15 * 60 * 1000,
+  });
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   try {
     const body = (await request.json()) as ResetPasswordBody;
     const token =

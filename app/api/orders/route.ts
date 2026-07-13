@@ -1,16 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAuthUser } from "@/lib/auth";
-import { getTrustedProductsBySlugs } from "@/lib/products";
 import {
   isDatabaseUnavailableError,
   prisma,
 } from "@/lib/prisma";
+import { rateLimit } from "@/lib/rate-limit";
 
 interface OrderItemInput {
   slug?: unknown;
   size?: unknown;
+  color?: unknown;
   quantity?: unknown;
+}
+
+interface NormalizedOrderItem {
+  slug: string;
+  size: string;
+  color: string;
+  quantity: number;
 }
 
 interface OrderBody {
@@ -21,35 +29,52 @@ interface OrderBody {
 }
 
 const DELIVERY_METHODS = new Set(["STANDARD", "EXPRESS"]);
-const PAYMENT_METHODS = new Set(["COD", "ONLINE"]);
+const PAYMENT_METHODS = new Set(["COD"]);
+
+class OrderValidationError extends Error {}
 
 function createOrderNumber() {
   const randomSuffix = Math.random()
     .toString(36)
-    .slice(2, 7)
+    .slice(2, 9)
     .toUpperCase();
 
-  return `WW-${Date.now().toString().slice(-6)}-${randomSuffix}`;
+  return `WW-${Date.now().toString().slice(-8)}-${randomSuffix}`;
 }
 
-function normalizeItems(items: unknown) {
+function normalizeItems(
+  items: unknown,
+): NormalizedOrderItem[] | null {
   if (!Array.isArray(items)) {
-    return [];
+    return null;
   }
 
-  return items
-    .map((item) => item as OrderItemInput)
-    .map((item) => ({
+  return items.map((item) => {
+    const value =
+      typeof item === "object" && item !== null
+        ? (item as OrderItemInput)
+        : {};
+
+    return {
       slug:
-        typeof item.slug === "string" ? item.slug : "",
+        typeof value.slug === "string"
+          ? value.slug.trim()
+          : "",
       size:
-        typeof item.size === "string" ? item.size : "",
+        typeof value.size === "string"
+          ? value.size.trim()
+          : "",
+      color:
+        typeof value.color === "string"
+          ? value.color.trim()
+          : "",
       quantity:
-        typeof item.quantity === "number"
-          ? Math.max(1, Math.min(10, Math.floor(item.quantity)))
+        typeof value.quantity === "number" &&
+        Number.isFinite(value.quantity)
+          ? Math.floor(value.quantity)
           : 0,
-    }))
-    .filter((item) => item.slug && item.quantity > 0);
+    };
+  });
 }
 
 function normalizeShippingAddress(shippingAddress: unknown) {
@@ -116,6 +141,20 @@ function normalizeShippingAddress(shippingAddress: unknown) {
   return normalized;
 }
 
+function assertValidItems(items: NormalizedOrderItem[] | null) {
+  if (!items || items.length === 0) {
+    throw new OrderValidationError(
+      "Add at least one valid item before placing an order.",
+    );
+  }
+
+  if (items.some((item) => !item.slug || item.quantity <= 0)) {
+    throw new OrderValidationError(
+      "Every order item must include a product and a positive quantity.",
+    );
+  }
+}
+
 export async function GET(request: NextRequest) {
   const authResult = await requireAuthUser(request);
 
@@ -157,6 +196,16 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const rateLimited = rateLimit(request, {
+    key: "create-order",
+    limit: 10,
+    windowMs: 60 * 1000,
+  });
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const authResult = await requireAuthUser(request);
 
   if (!authResult.user) {
@@ -178,137 +227,185 @@ export async function POST(request: NextRequest) {
         ? body.paymentMethod
         : "";
 
-    if (!normalizedItems.length) {
-      return NextResponse.json(
-        {
-          error: "Add at least one valid item before placing an order.",
-        },
-        {
-          status: 400,
-        },
-      );
-    }
+    assertValidItems(normalizedItems);
 
     if (!shippingAddress) {
-      return NextResponse.json(
-        {
-          error: "Enter a complete delivery address.",
-        },
-        {
-          status: 400,
-        },
+      throw new OrderValidationError(
+        "Enter a complete delivery address.",
       );
     }
 
     if (!DELIVERY_METHODS.has(deliveryMethod)) {
-      return NextResponse.json(
-        {
-          error: "Choose a valid delivery method.",
-        },
-        {
-          status: 400,
-        },
+      throw new OrderValidationError(
+        "Choose a valid delivery method.",
       );
     }
 
     if (!PAYMENT_METHODS.has(paymentMethod)) {
-      return NextResponse.json(
-        {
-          error: "Choose a valid payment method.",
-        },
-        {
-          status: 400,
-        },
+      throw new OrderValidationError(
+        "Choose a valid payment method.",
       );
     }
 
-    if (paymentMethod !== "COD") {
-      return NextResponse.json(
-        {
-          error:
-            "Cash on Delivery is supported first. Razorpay is not connected yet.",
-        },
-        {
-          status: 400,
-        },
+    const order = await prisma.$transaction(async (transaction) => {
+      const items = normalizedItems!;
+      const slugs = Array.from(
+        new Set(items.map((item) => item.slug)),
       );
-    }
 
-    const trustedProducts = await getTrustedProductsBySlugs(
-      normalizedItems.map((item) => item.slug),
-    );
+      const products = await transaction.product.findMany({
+        where: {
+          slug: {
+            in: slugs,
+          },
+        },
+        select: {
+          id: true,
+          slug: true,
+          sku: true,
+          name: true,
+          price: true,
+          image: true,
+          category: true,
+          statement: true,
+          sizes: true,
+          colors: true,
+          stock: true,
+          productStatus: true,
+        },
+      });
 
-    const productMap = new Map(
-      trustedProducts.map((product) => [
-        product.slug,
-        product,
-      ]),
-    );
+      const productMap = new Map(
+        products.map((product) => [
+          product.slug,
+          product,
+        ]),
+      );
+      const quantityBySlug = new Map<string, number>();
 
-    const orderItems = normalizedItems.map((item) => {
-      const product = productMap.get(item.slug);
+      const orderItems = items.map((item) => {
+        const product = productMap.get(item.slug);
 
-      if (!product) {
-        return null;
+        if (!product) {
+          throw new OrderValidationError(
+            "One or more products could not be found.",
+          );
+        }
+
+        if (product.productStatus !== "ACTIVE") {
+          throw new OrderValidationError(
+            `${product.name} is not available for purchase.`,
+          );
+        }
+
+        if (
+          product.sizes.length > 0 &&
+          !product.sizes.includes(item.size)
+        ) {
+          throw new OrderValidationError(
+            `Choose a valid size for ${product.name}.`,
+          );
+        }
+
+        if (
+          product.colors.length > 0 &&
+          (!item.color || !product.colors.includes(item.color))
+        ) {
+          throw new OrderValidationError(
+            `Choose a valid color for ${product.name}.`,
+          );
+        }
+
+        const nextProductQuantity =
+          (quantityBySlug.get(product.slug) || 0) + item.quantity;
+        quantityBySlug.set(product.slug, nextProductQuantity);
+
+        return {
+          productId: product.id,
+          slug: product.slug,
+          sku: product.sku,
+          name: product.name,
+          image: product.image,
+          category: product.category,
+          statement: product.statement,
+          size: item.size || "Default",
+          color: item.color,
+          price: product.price,
+          quantity: item.quantity,
+          total: product.price * item.quantity,
+        };
+      });
+
+      quantityBySlug.forEach((quantity, slug) => {
+        const product = productMap.get(slug);
+
+        if (!product) {
+          throw new OrderValidationError(
+            "One or more products could not be validated.",
+          );
+        }
+
+        if (quantity > product.stock) {
+          throw new OrderValidationError(
+            `Only ${product.stock} unit${product.stock === 1 ? "" : "s"} of ${product.name} are available.`,
+          );
+        }
+      });
+
+      const subtotal = orderItems.reduce(
+        (sum, item) => sum + item.total,
+        0,
+      );
+      const shipping =
+        deliveryMethod === "EXPRESS"
+          ? 199
+          : subtotal >= 999
+            ? 0
+            : 99;
+      const discount = 0;
+      const total = subtotal + shipping - discount;
+
+      const createdOrder = await transaction.order.create({
+        data: {
+          orderNumber: createOrderNumber(),
+          userId: authResult.user!.id,
+          items: orderItems,
+          subtotal,
+          shipping,
+          discount,
+          total,
+          deliveryMethod,
+          paymentMethod,
+          paymentStatus: "PENDING",
+          status: "PENDING",
+          shippingAddress,
+        },
+      });
+
+      for (const [slug, quantity] of quantityBySlug) {
+        const stockUpdate = await transaction.product.updateMany({
+          where: {
+            slug,
+            productStatus: "ACTIVE",
+            stock: {
+              gte: quantity,
+            },
+          },
+          data: {
+            stock: {
+              decrement: quantity,
+            },
+          },
+        });
+
+        if (stockUpdate.count !== 1) {
+          throw new OrderValidationError(
+            "Stock changed while placing your order. Please review your bag and try again.",
+          );
+        }
       }
 
-      return {
-        productId: product.id,
-        slug: product.slug,
-        name: product.name,
-        image: product.image,
-        category: product.category,
-        statement: product.statement,
-        size: item.size || "Default",
-        price: product.price,
-        quantity: item.quantity,
-        total: product.price * item.quantity,
-      };
-    });
-
-    if (orderItems.some((item) => item === null)) {
-      return NextResponse.json(
-        {
-          error:
-            "One or more products could not be validated on the server.",
-        },
-        {
-          status: 400,
-        },
-      );
-    }
-
-    const safeOrderItems = orderItems.filter(
-      (item): item is NonNullable<typeof item> => Boolean(item),
-    );
-
-    const subtotal = safeOrderItems.reduce(
-      (sum, item) => sum + item.total,
-      0,
-    );
-    const shipping = deliveryMethod === "EXPRESS"
-      ? 199
-      : subtotal >= 999
-        ? 0
-        : 99;
-    const discount = 0;
-    const total = subtotal + shipping - discount;
-
-    const order = await prisma.order.create({
-      data: {
-        orderNumber: createOrderNumber(),
-        userId: authResult.user.id,
-        items: safeOrderItems,
-        subtotal,
-        shipping,
-        discount,
-        total,
-        deliveryMethod,
-        paymentMethod,
-        paymentStatus: "PENDING",
-        status: "PLACED",
-        shippingAddress,
-      },
+      return createdOrder;
     });
 
     return NextResponse.json(
@@ -320,14 +417,27 @@ export async function POST(request: NextRequest) {
       },
     );
   } catch (error) {
+    if (error instanceof OrderValidationError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
     console.error("CREATE_ORDER_API_ERROR", error);
 
     return NextResponse.json(
       {
-        error: "Unable to place your order right now.",
+        error: isDatabaseUnavailableError(error)
+          ? "The database is temporarily unavailable. Please try again shortly."
+          : "Unable to place your order right now.",
       },
       {
-        status: 500,
+        status: isDatabaseUnavailableError(error) ? 503 : 500,
       },
     );
   }
